@@ -1,0 +1,62 @@
+// backend/routes/movies.js
+import express from 'express'
+import {
+  getMovies,
+  getMovieById,
+  createMovie,
+  updateMovie,
+  deleteMovie,
+  getMovieSeats,        // legacy seats
+  getFeaturedMovies,
+
+  // OMDB external API
+  getMoviesFromAPI,
+  getMovieDetailsFromAPI,
+
+  // BookMyShow system
+  getShowSeats,
+  createShowInstancesForMovie
+} from '../controllers/movieController.js'
+
+import auth from '../middleware/auth.js'
+import admin from '../middleware/admin.js'
+
+const router = express.Router()
+
+/* ------------------------------------------
+   🔹 OMDB EXTERNAL API ROUTES
+-------------------------------------------*/
+router.get('/api/search', getMoviesFromAPI)
+router.get('/api/details/:imdbId', getMovieDetailsFromAPI)
+
+/* ------------------------------------------
+   🔹 BOOKMYSHOW STYLE SHOW-INSTANCE ROUTES
+-------------------------------------------*/
+
+// Get seats for a specific show instance
+router.get('/show/:showId/seats', getShowSeats)
+
+// Admin: create missing show instances from movie.showtimes
+router.post('/:id/create-show-instances', auth, admin, createShowInstancesForMovie)
+
+/* ------------------------------------------
+   🔹 PUBLIC MOVIE ROUTES
+-------------------------------------------*/
+
+router.get('/', getMovies)
+router.get('/featured', getFeaturedMovies)
+
+// legacy seat endpoint (item_type = 'movie')
+router.get('/:movieId/seats', getMovieSeats)
+
+router.get('/:id', getMovieById)
+
+/* ------------------------------------------
+   🔹 ADMIN MOVIE ROUTES
+-------------------------------------------*/
+
+router.post('/', auth, admin, createMovie)
+router.put('/:id', auth, admin, updateMovie)
+router.delete('/:id', auth, admin, deleteMovie)
+
+export default router

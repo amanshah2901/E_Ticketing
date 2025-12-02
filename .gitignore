@@ -1,0 +1,68 @@
+# -------------------------
+# Node Modules (Frontend + Backend)
+# -------------------------
+node_modules/
+
+# -------------------------
+# Environment Variables
+# -------------------------
+.env
+backend/.env
+src/.env
+
+# -------------------------
+# Build Output (Vite / React)
+# -------------------------
+dist/
+build/
+
+# -------------------------
+# Uploads Folder (You keep it local)
+# -------------------------
+backend/uploads/
+
+# -------------------------
+# Logs
+# -------------------------
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logs/
+*.log
+
+# -------------------------
+# OS System Files
+# -------------------------
+.DS_Store
+Thumbs.db
+
+# -------------------------
+# Editor Settings
+# -------------------------
+.vscode/
+.idea/
+
+# -------------------------
+# Coverage / Testing
+# -------------------------
+coverage/
+
+# -------------------------
+# Cache
+# -------------------------
+.cache/
+.temp/
+*.tsbuildinfo
+
+# -------------------------
+# Lock files (optional)
+# -------------------------
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
+# -------------------------
+# Misc
+# -------------------------
+*.local
