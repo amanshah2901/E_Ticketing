@@ -164,9 +164,11 @@ const MyBookings = () => {
             )}
 
             {booking.booking_status === 'confirmed' && (
-              <Button variant="default" size="sm">
-                <Download className="w-4 h-4 mr-1" />
-                Ticket
+              <Button variant="default" size="sm" asChild>
+                <Link to={`/ticket/${booking._id}`}>
+                  <Download className="w-4 h-4 mr-1" />
+                  View Ticket
+                </Link>
               </Button>
             )}
           </div>

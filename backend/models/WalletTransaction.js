@@ -40,7 +40,8 @@ const walletTransactionSchema = new mongoose.Schema({
   reference_id: {
     type: String,
     trim: true,
-    unique: true
+    unique: true,
+    sparse: true // Allow null/undefined but enforce uniqueness when present
   },
   gateway_transaction_id: {
     type: String,
@@ -61,11 +62,29 @@ walletTransactionSchema.index({ reference_id: 1 });
 walletTransactionSchema.index({ booking_id: 1 });
 
 // Generate reference ID before saving
-walletTransactionSchema.pre('save', function(next) {
+walletTransactionSchema.pre('save', async function(next) {
   if (!this.reference_id) {
-    const timestamp = Date.now().toString();
-    const random = Math.random().toString(36).substr(2, 6).toUpperCase();
-    this.reference_id = `WT${timestamp}${random}`;
+    let attempts = 0;
+    let generated = false;
+    
+    while (!generated && attempts < 5) {
+      const timestamp = Date.now().toString();
+      const random = Math.random().toString(36).substr(2, 9).toUpperCase();
+      const candidate = `WT${timestamp}${random}`;
+      
+      // Check if this reference_id already exists
+      const existing = await this.constructor.findOne({ reference_id: candidate });
+      if (!existing) {
+        this.reference_id = candidate;
+        generated = true;
+      }
+      attempts++;
+    }
+    
+    // Fallback if all attempts failed (very unlikely)
+    if (!generated) {
+      this.reference_id = `WT${Date.now()}${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+    }
   }
   next();
 });

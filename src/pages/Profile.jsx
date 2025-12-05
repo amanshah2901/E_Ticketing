@@ -8,6 +8,7 @@ import { Separator } from '@/components/ui/separator'
 import { useAuth } from '@/context/AuthContext'
 import { walletAPI } from "@/api/services";
 import { useWallet, useWalletTransactions, useAddFunds } from '@/hooks/useWallet'
+import { loadRazorpay } from '@/utils/razorpay'
 import { formatCurrency, formatDate } from '@/utils'
 import { 
   User, 
@@ -48,52 +49,87 @@ const Profile = () => {
   }
 
   const handleAddFunds = async () => {
-  const amount = parseFloat(addFundsAmount);
+    const amount = parseFloat(addFundsAmount);
 
-  if (!amount || amount <= 0) {
-    alert("Enter valid amount");
-    return;
-  }
+    if (!amount || amount <= 0) {
+      alert("Enter valid amount");
+      return;
+    }
 
-  try {
-    // 1️⃣ Create Razorpay Order
-    const res = await walletAPI.createWalletOrder(amount);
-    const order = res.order;
+    try {
+      // 1️⃣ Load Razorpay SDK
+      const Razorpay = await loadRazorpay();
+      if (!Razorpay) {
+        alert("Failed to load payment gateway. Please try again.");
+        return;
+      }
 
-    // 2️⃣ Open Razorpay Popup
-    const options = {
-      key: import.meta.env.VITE_RAZORPAY_KEY_ID,
-      amount: order.amount,
-      currency: "INR",
-      name: "TicketHub Wallet Recharge",
-      description: "Add money to wallet",
-      order_id: order.id,
+      // 2️⃣ Create Razorpay Order
+      const order = await walletAPI.createWalletOrder(amount);
+      console.log("ORDER RESPONSE ===>", order);
 
-      handler: async function (response) {
-        // 3️⃣ After payment, verify on backend
-        await walletAPI.verifyWalletPayment({
-          razorpay_payment_id: response.razorpay_payment_id,
-          razorpay_order_id: response.razorpay_order_id,
-          razorpay_signature: response.razorpay_signature,
-          amount
-        });
+      if (!order || !order.id) {
+        alert("Failed to create payment order. Please try again.");
+        return;
+      }
 
-        alert("Wallet recharge successful!");
-        setAddFundsAmount("");
-        window.location.reload(); // refresh wallet balance
-      },
+      // 3️⃣ Open Razorpay Popup
+      const options = {
+        key: import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_mock',
+        amount: order.amount, // Already in paise from backend
+        currency: order.currency || "INR",
+        name: "TicketHub Wallet Recharge",
+        description: `Add ₹${amount} to wallet`,
+        order_id: order.id,
+        prefill: {
+          name: user?.full_name || "",
+          email: user?.email || "",
+          contact: user?.phone || ""
+        },
+        handler: async function (response) {
+          try {
+            // 4️⃣ After payment, verify on backend
+            const result = await walletAPI.verifyWalletPayment({
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_signature: response.razorpay_signature,
+              amount
+            });
 
-      theme: { color: "#4f46e5" }
-    };
+            if (result.success) {
+              alert("Wallet recharge successful! Your balance has been updated.");
+              setAddFundsAmount("");
+              // Refresh wallet data
+              window.location.reload();
+            } else {
+              alert(result.message || "Payment verification failed. Please contact support.");
+            }
+          } catch (error) {
+            console.error("Payment verification error:", error);
+            alert("Payment verification failed. Please contact support with payment ID: " + response.razorpay_payment_id);
+          }
+        },
+        modal: {
+          ondismiss: function() {
+            console.log("Payment cancelled by user");
+          }
+        },
+        theme: { color: "#4f46e5" }
+      };
 
-    const rzp = new window.Razorpay(options);
-    rzp.open();
+      const rzp = new Razorpay(options);
+      rzp.on('payment.failed', function (response) {
+        console.error("Payment failed:", response.error);
+        alert(`Payment failed: ${response.error.description || "Unknown error"}`);
+      });
+      
+      rzp.open();
 
-  } catch (error) {
-    console.error(error);
-    alert("Failed to initiate wallet recharge");
-  }
-};
+    } catch (error) {
+      console.error("Wallet recharge error:", error);
+      alert("Failed to initiate wallet recharge: " + (error.message || "Unknown error"));
+    }
+  };
 
 
   const quickAmounts = [100, 500, 1000, 2000]
@@ -340,29 +376,45 @@ const Profile = () => {
                       ) : (
                         <div className="space-y-4">
                           {transactions.slice(0, 10).map(transaction => (
-                            <div key={transaction._id} className="flex items-center justify-between p-4 border rounded-lg">
-                              <div className="flex items-center gap-3">
-                                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                                  transaction.transaction_type === 'credit' 
-                                    ? 'bg-green-100 text-green-600'
-                                    : 'bg-red-100 text-red-600'
-                                }`}>
-                                  {transaction.transaction_type === 'credit' ? '↑' : '↓'}
-                                </div>
-                                <div>
-                                  <div className="font-semibold">{transaction.description}</div>
-                                  <div className="text-sm text-gray-600">
-                                    {formatDate(transaction.createdAt)}
+                            <div key={transaction._id} className="p-4 border rounded-lg space-y-2">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                                    transaction.transaction_type === 'credit' 
+                                      ? 'bg-green-100 text-green-600'
+                                      : transaction.transaction_type === 'debit'
+                                      ? 'bg-red-100 text-red-600'
+                                      : 'bg-blue-100 text-blue-600'
+                                  }`}>
+                                    {transaction.transaction_type === 'credit' ? '↑' : transaction.transaction_type === 'debit' ? '↓' : '↻'}
+                                  </div>
+                                  <div>
+                                    <div className="font-semibold">{transaction.description}</div>
+                                    <div className="text-sm text-gray-600">
+                                      {formatDate(transaction.created_at || transaction.createdAt)}
+                                    </div>
+                                    {transaction.reference_id && (
+                                      <div className="text-xs text-gray-500 mt-1">
+                                        Ref: {transaction.reference_id}
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
-                              </div>
-                              <div className={`font-semibold ${
-                                transaction.transaction_type === 'credit' 
-                                  ? 'text-green-600'
-                                  : 'text-red-600'
-                              }`}>
-                                {transaction.transaction_type === 'credit' ? '+' : '-'}
-                                {formatCurrency(transaction.amount)}
+                                <div className="text-right">
+                                  <div className={`font-semibold ${
+                                    transaction.transaction_type === 'credit' 
+                                      ? 'text-green-600'
+                                      : transaction.transaction_type === 'debit'
+                                      ? 'text-red-600'
+                                      : 'text-blue-600'
+                                  }`}>
+                                    {transaction.transaction_type === 'credit' ? '+' : transaction.transaction_type === 'debit' ? '-' : '+'}
+                                    {formatCurrency(transaction.amount)}
+                                  </div>
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    Balance: {formatCurrency(transaction.balance_after || 0)}
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           ))}

@@ -454,39 +454,59 @@ export const getBusSeats = async (req, res) => {
 // Search buses by route and date
 export const searchBuses = async (req, res) => {
   try {
-    const { from_city, to_city, departure_date, passengers = 1 } = req.query;
+    const { search, from_city, to_city, departure_date, passengers = 1 } = req.query;
 
-    if (!from_city || !to_city || !departure_date) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide from city, to city, and departure date'
-      });
+    const filter = {
+      status: 'active'
+    };
+
+    // Support generic search parameter
+    if (search) {
+      filter.$or = [
+        { operator: new RegExp(search, 'i') },
+        { bus_number: new RegExp(search, 'i') },
+        { from_city: new RegExp(search, 'i') },
+        { to_city: new RegExp(search, 'i') },
+        { route: new RegExp(search, 'i') }
+      ];
+    } else {
+      // Specific search with city filters
+      if (from_city) {
+        filter.from_city = new RegExp(from_city, 'i');
+      }
+      if (to_city) {
+        filter.to_city = new RegExp(to_city, 'i');
+      }
     }
 
-    const startDate = new Date(departure_date);
-    startDate.setHours(0, 0, 0, 0);
-    
-    const endDate = new Date(departure_date);
-    endDate.setHours(23, 59, 59, 999);
+    if (departure_date) {
+      const startDate = new Date(departure_date);
+      startDate.setHours(0, 0, 0, 0);
+      
+      const endDate = new Date(departure_date);
+      endDate.setHours(23, 59, 59, 999);
 
-    const buses = await Bus.find({
-      from_city: new RegExp(from_city, 'i'),
-      to_city: new RegExp(to_city, 'i'),
-      departure_date: {
+      filter.departure_date = {
         $gte: startDate,
         $lte: endDate
-      },
-      status: 'active',
-      available_seats: { $gte: parseInt(passengers) }
-    })
-    .sort({ departure_time: 1, price: 1 })
-    .select('-createdAt -updatedAt -__v');
+      };
+    }
+
+    if (passengers) {
+      filter.available_seats = { $gte: parseInt(passengers) };
+    }
+
+    const buses = await Bus.find(filter)
+      .sort({ departure_time: 1, price: 1 })
+      .limit(50)
+      .select('-createdAt -updatedAt -__v');
 
     res.json({
       success: true,
       data: {
         buses,
         search_params: {
+          search,
           from_city,
           to_city,
           departure_date,

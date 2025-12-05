@@ -1,6 +1,6 @@
 // src/pages/Payment.jsx
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -46,9 +46,17 @@ const Payment = () => {
     }
 
     setBookingData(location.state.bookingData);
+  }, []);
 
-    if (paymentMethod !== "wallet") {
-      loadRzp();
+  // Load Razorpay SDK only when Razorpay payment method is selected
+  useEffect(() => {
+    if (paymentMethod !== "wallet" && paymentMethod !== "upi" && paymentMethod !== "netbanking") {
+      // Only load for "razorpay" (which handles card/upi/netbanking via Razorpay)
+      if (paymentMethod === "razorpay") {
+        loadRzp();
+      }
+    } else {
+      setRazorpayLoaded(false);
     }
   }, [paymentMethod]);
 
@@ -56,6 +64,35 @@ const Payment = () => {
     const sdk = await loadRazorpay();
     if (sdk) setRazorpayLoaded(true);
   };
+
+  const pricing = useMemo(() => {
+    if (!bookingData) {
+      return { subtotal: 0, bookingFee: 0, gst: 0, total: 0 }
+    }
+
+    if (bookingData.pricing) {
+      return {
+        subtotal: bookingData.pricing.subtotal ?? bookingData.pricing.base ?? bookingData.basePrice ?? 0,
+        bookingFee: bookingData.pricing.bookingFee ?? bookingData.bookingFee ?? 0,
+        gst: bookingData.pricing.gst ?? bookingData.pricing.tax ?? bookingData.gst ?? bookingData.tax ?? 0,
+        total: bookingData.pricing.total ?? bookingData.total_amount ?? bookingData.totalAmount ?? 0
+      }
+    }
+
+    const subtotal = bookingData.basePrice ?? bookingData.total_amount ?? bookingData.totalAmount ?? 0
+    const bookingFee = bookingData.bookingFee ?? subtotal * 0.05
+    const gst = bookingData.gst ?? bookingData.tax ?? subtotal * 0.05
+    const total = bookingData.total_amount ?? bookingData.totalAmount ?? subtotal + bookingFee + gst
+
+    return {
+      subtotal,
+      bookingFee,
+      gst,
+      total
+    }
+  }, [bookingData])
+
+  const totalAmount = pricing.total
 
   /* -------------------------------------------------------
      MAIN PAYMENT HANDLER
@@ -84,36 +121,56 @@ const Payment = () => {
   const handleWalletPayment = async () => {
     if (!wallet) return alert("Unable to load wallet");
 
-    if (wallet.balance < bookingData.total_amount) {
+    if (wallet.balance < totalAmount) {
       return alert("Insufficient wallet balance!");
     }
 
-    const booking = await bookingsAPI.createBooking({
-      ...bookingData,
-      payment_method: "wallet",
-      paid_amount: bookingData.total_amount,
-    });
+    try {
+      // Create proper booking payload for wallet payment
+      const bookingPayload = {
+        booking_type: bookingData.booking_type,
+        item_id: bookingData.item_id,
+        quantity: bookingData.quantity || 1,
+        seats: bookingData.seats || [],
+        passenger_details: bookingData.passenger_details || [],
+        special_requirements: bookingData.special_requirements || "",
+        payment_method: "wallet",
+      };
 
-    navigate("/confirmation", {
-      state: { booking, paymentMethod: "wallet" },
-    });
+      console.log("Creating wallet booking with payload:", bookingPayload);
+
+      const booking = await bookingsAPI.createBooking(bookingPayload);
+
+      navigate("/confirmation", {
+        state: { booking, paymentMethod: "wallet" },
+      });
+    } catch (error) {
+      console.error("Wallet payment error:", error);
+      alert(`Wallet payment failed: ${error.message || "Unknown error"}`);
+    }
   };
 
   /* -------------------------------------------------------
      RAZORPAY HANDLER
   ------------------------------------------------------- */
   const handleRazorpayPayment = async () => {
-    if (!razorpayLoaded) return alert("Gateway loading, try again…");
+    // Load Razorpay if not already loaded
+    if (!razorpayLoaded) {
+      await loadRzp();
+      if (!razorpayLoaded) {
+        return alert("Gateway loading, try again…");
+      }
+    }
 
     // Razorpay requires paise
     const order = await paymentsAPI.createOrder({
-      amount: Number(bookingData.total_amount),
+      amount: Number(totalAmount),
       currency: "INR",
       receipt: `rcpt_${Date.now()}`,
     });
 
     const options = {
-      key: import.meta.env.VITE_RAZORPAY_KEY_ID,
+      key: import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_mock',
       amount: order.amount,
       currency: order.currency,
       name: "TicketHub",
@@ -122,21 +179,32 @@ const Payment = () => {
 
       handler: async (response) => {
         try {
+          // First verify the payment
           await paymentsAPI.verifyPayment(response);
 
-          const booking = await bookingsAPI.createBooking({
-            ...bookingData,
+          // Then create the booking with proper data structure
+          const bookingPayload = {
+            booking_type: bookingData.booking_type,
+            item_id: bookingData.item_id,
+            quantity: bookingData.quantity || 1,
+            seats: bookingData.seats || [],
+            passenger_details: bookingData.passenger_details || [],
+            special_requirements: bookingData.special_requirements || "",
             payment_method: "razorpay",
             razorpay_payment_id: response.razorpay_payment_id,
             razorpay_order_id: response.razorpay_order_id,
-          });
+          };
+
+          console.log("Creating booking with payload:", bookingPayload);
+
+          const booking = await bookingsAPI.createBooking(bookingPayload);
 
           navigate("/confirmation", {
             state: { booking, paymentMethod: "razorpay" },
           });
         } catch (err) {
           console.error("Payment verify error:", err);
-          alert("Payment verification failed.");
+          alert(`Payment verification failed: ${err.message || "Unknown error"}`);
         }
       },
 
@@ -215,10 +283,7 @@ const Payment = () => {
                 >
                   <div className="flex items-center gap-4">
                     <RadioGroupItem
-                      id={pm.id}
                       value={pm.id}
-                      checked={paymentMethod === pm.id}
-                      onClick={() => setPaymentMethod(pm.id)}
                     />
                     <Label htmlFor={pm.id} className="cursor-pointer">
                       <div className="flex items-center gap-3">
@@ -271,17 +336,17 @@ const Payment = () => {
             <div className="mt-4 space-y-2 text-sm">
               <div className="flex justify-between">
                 <span>Base Price</span>
-                <span>{formatCurrency(bookingData.basePrice)}</span>
+                <span>{formatCurrency(pricing.subtotal || 0)}</span>
               </div>
 
               <div className="flex justify-between">
                 <span>Booking Fee (5%)</span>
-                <span>{formatCurrency(bookingData.basePrice * 0.05)}</span>
+                <span>{formatCurrency(pricing.bookingFee || 0)}</span>
               </div>
 
               <div className="flex justify-between">
                 <span>GST (5%)</span>
-                <span>{formatCurrency(bookingData.basePrice * 0.05)}</span>
+                <span>{formatCurrency(pricing.gst || 0)}</span>
               </div>
 
               <Separator />
@@ -289,11 +354,7 @@ const Payment = () => {
               <div className="flex justify-between text-lg font-semibold">
                 <span>Total</span>
                 <span className="text-green-600">
-                  {formatCurrency(
-                    bookingData.basePrice +
-                      bookingData.basePrice * 0.05 +
-                      bookingData.basePrice * 0.05
-                  )}
+                  {formatCurrency(totalAmount || 0)}
                 </span>
               </div>
 
@@ -307,7 +368,7 @@ const Payment = () => {
             >
               {loading
                 ? "Processing..."
-                : `Pay ${formatCurrency(bookingData.total_amount)}`}
+                : `Pay ${formatCurrency(totalAmount)}`}
             </Button>
           </CardContent>
         </Card>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -18,10 +18,11 @@ import {
   Clock,
   Users
 } from 'lucide-react'
-import { moviesAPI, busesAPI, eventsAPI, toursAPI } from '@/api/services'
+import { moviesAPI, busesAPI, eventsAPI, toursAPI, searchAPI } from '@/api/services'
 import { formatCurrency, formatDate } from '@/utils'
 
 const Home = () => {
+  const navigate = useNavigate()
   const [searchQuery, setSearchQuery] = useState('')
   const [featuredMovies, setFeaturedMovies] = useState([])
   const [popularBuses, setPopularBuses] = useState([])
@@ -57,7 +58,7 @@ const Home = () => {
   const handleSearch = (e) => {
     e.preventDefault()
     if (searchQuery.trim()) {
-      window.location.href = `/search?q=${encodeURIComponent(searchQuery)}`
+      navigate(`/search?q=${encodeURIComponent(searchQuery)}`)
     }
   }
 

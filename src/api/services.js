@@ -3,7 +3,14 @@ import api from './axios'
 // Auth API
 export const authAPI = {
   login: (email, password) =>
-    api.post('/auth/login', { email, password }).then(res => res.data.data),
+    api.post('/auth/login', { email, password }).then(res => {
+      // Handle response structure: { data: { token, user } } or { token, user }
+      const data = res.data.data || res.data;
+      return {
+        token: data.token,
+        user: data.user
+      };
+    }),
   
   register: (userData) =>
     api.post('/auth/register', userData).then(res => res.data.data),
@@ -21,22 +28,43 @@ export const authAPI = {
 // Movies API
 export const moviesAPI = {
   getMovies: (params = {}) =>
-    api.get('/movies', { params }).then(res => res.data.data),
+    api.get('/movies', { params: { ...params, limit: params.limit || 100 } }).then(res => {
+      // Handle response structure: { data: { movies: [...] } } or { movies: [...] }
+      const data = res.data.data || res.data;
+      // Return movies array or the full data object
+      if (Array.isArray(data)) return data;
+      if (data && data.movies) return data.movies;
+      return data || [];
+    }),
   
   getMovieById: (id) =>
     api.get(`/movies/${id}`).then(res => res.data.data),
   
-  getMovieSeats: (movieId) =>
-    api.get(`/movies/${movieId}/seats`).then(res => res.data.data),
-  
+  getMovieSeats: (movieId, showtimeId) =>
+    api.get(`/movies/${movieId}/seats`, { params: { showtimeId } }).then(res => res.data.data),
+
   getFeaturedMovies: () =>
     api.get('/movies/featured').then(res => res.data.data),
-  
-  searchMovies: (search) =>
-    api.get('/movies/api/search', { params: { search } }).then(res => res.data.data),
 
-  getMovieSeats: (movieId, showtimeId) =>
-  api.get(`/movies/${movieId}/seats`, { params: { showtimeId } }).then(res => res.data.data),
+  searchMovies: (search) =>
+    api.get('/movies/api/search', { params: { search } }).then(res => res.data.data || res.data.movies || []),
+
+  getMovieDetailsFromAPI: (imdbId) =>
+    api.get(`/movies/api/details/${imdbId}`).then(res => res.data.data),
+
+  getMovieShowtimes: (movieId, date) =>
+    api.get(`/movies/${movieId}/showtimes`, { params: { date } }).then(res => {
+      // Handle response structure: { data: { showtimes: {...} } } or { showtimes: {...} }
+      const response = res.data?.data || res.data
+      return response?.showtimes || response || {}
+    }),
+
+  getShowSeats: (showId) =>
+    api.get(`/movies/show/${showId}/seats`).then(res => res.data.data),
+
+  // Import latest movies from OMDB
+  importLatestMovies: (options = {}) =>
+    api.post('/movies/api/import-latest', options).then(res => res.data)
 
 }
 
@@ -103,7 +131,7 @@ export const bookingsAPI = {
     api.get('/bookings', { params }).then(res => res.data.data),
   
   getBookingById: (id) =>
-    api.get(`/bookings/${id}`).then(res => res.data.data),
+    api.get(`/bookings/${id}`).then(res => res.data),
   
   cancelBooking: (id, reason) =>
     api.put(`/bookings/${id}/cancel`, { reason }).then(res => res.data.data),
@@ -131,7 +159,6 @@ export const paymentsAPI = {
 }
 
 // Wallet API
-// Wallet API
 export const walletAPI = {
   getWallet: () =>
     api.get('/wallet').then(res => res.data.data),
@@ -151,7 +178,22 @@ export const walletAPI = {
   createWalletOrder(amount) {
     return api
       .post('/wallet/create-order', { amount })
-      .then(res => res.data.data.order);
+      .then(res => {
+        // Handle different response structures
+        const response = res.data;
+        if (response.data?.order) {
+          return response.data.order;
+        }
+        if (response.order) {
+          return response.order;
+        }
+        console.error('Invalid order response:', response);
+        throw new Error('Invalid order response from server');
+      })
+      .catch(error => {
+        console.error('Wallet order creation error:', error);
+        throw error;
+      });
   },
 
   // No change needed here
@@ -183,4 +225,14 @@ export const adminAPI = {
   
   getRevenueAnalytics: (params = {}) =>
     api.get('/admin/revenue-analytics', { params }).then(res => res.data.data)
+}
+
+// Movies API - Import latest from OMDB
+moviesAPI.importLatestMovies = (options = {}) =>
+  api.post('/movies/api/import-latest', options).then(res => res.data)
+
+// Unified Search API
+export const searchAPI = {
+  unifiedSearch: (query) =>
+    api.get('/search', { params: { query } }).then(res => res.data.data)
 }

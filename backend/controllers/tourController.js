@@ -362,14 +362,22 @@ export const getToursByDestination = async (req, res) => {
 // Search tours
 export const searchTours = async (req, res) => {
   try {
-    const { destination, tour_type, difficulty_level, min_price, max_price, duration } = req.query;
+    const { search, destination, tour_type, difficulty_level, min_price, max_price, duration } = req.query;
 
     const filter = {
       status: 'available',
       start_date: { $gte: new Date() }
     };
 
-    if (destination) {
+    // Support generic search parameter
+    if (search) {
+      filter.$or = [
+        { title: new RegExp(search, 'i') },
+        { destination: new RegExp(search, 'i') },
+        { description: new RegExp(search, 'i') },
+        { tour_operator: new RegExp(search, 'i') }
+      ];
+    } else if (destination) {
       filter.destination = new RegExp(destination, 'i');
     }
 

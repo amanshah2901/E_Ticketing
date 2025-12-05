@@ -3,13 +3,11 @@ import Movie from '../models/Movie.js';
 import Booking from '../models/Booking.js';
 import Seat from '../models/Seat.js';
 import ShowInstance from '../models/ShowInstance.js';
-import axios from 'axios';
 import mongoose from 'mongoose';
-
-const OMDB_API_KEY = process.env.OMDB_API_KEY || '';
+import * as omdbService from '../utils/omdbService.js';
 
 /* -------------------------------
-   OMDB: Search and Details
+   OMDB: Search and Details (with caching)
 ---------------------------------*/
 export const getMoviesFromAPI = async (req, res) => {
   try {
@@ -24,38 +22,29 @@ export const getMoviesFromAPI = async (req, res) => {
       });
     }
 
-    const response = await axios.get(
-      `http://www.omdbapi.com/?apikey=${OMDB_API_KEY}&s=${encodeURIComponent(search)}&type=movie&page=${page}`
-    );
+    const result = await omdbService.searchMovies(search, page);
 
-    if (response.data.Response === 'True') {
-      const movies = response.data.Search.map(movie => ({
-        title: movie.Title,
-        year: movie.Year,
-        imdb_id: movie.imdbID,
-        poster_url: movie.Poster !== 'N/A' ? movie.Poster : '/default-movie-poster.jpg',
-        type: movie.Type
-      }));
-
+    if (result.success) {
       res.json({
         success: true,
-        data: movies,
-        total: parseInt(response.data.totalResults) || 0,
-        page: parseInt(page)
+        data: result.movies,
+        total: result.total,
+        page: result.page
       });
     } else {
       res.json({
         success: true,
         data: [],
         total: 0,
-        message: response.data.Error || 'No movies found'
+        message: result.error || 'No movies found'
       });
     }
   } catch (error) {
     console.error('OMDB API error:', error);
     res.status(500).json({
       success: false,
-      message: 'Error fetching movies from external API'
+      message: 'Error fetching movies from external API',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -68,51 +57,275 @@ export const getMovieDetailsFromAPI = async (req, res) => {
       return res.status(400).json({ success: false, message: 'imdbId required' });
     }
 
-    const response = await axios.get(
-      `http://www.omdbapi.com/?apikey=${OMDB_API_KEY}&i=${imdbId}&plot=full`
-    );
+    const result = await omdbService.getMovieDetails(imdbId);
 
-    if (response.data.Response === 'True') {
-      const movieDetails = {
-        title: response.data.Title,
-        year: response.data.Year,
-        rated: response.data.Rated,
-        released: response.data.Released,
-        runtime: response.data.Runtime,
-        genre: response.data.Genre,
-        director: response.data.Director,
-        writer: response.data.Writer,
-        actors: response.data.Actors,
-        plot: response.data.Plot,
-        language: response.data.Language,
-        country: response.data.Country,
-        awards: response.data.Awards,
-        poster_url: response.data.Poster !== 'N/A' ? response.data.Poster : '/default-movie-poster.jpg',
-        ratings: response.data.Ratings,
-        imdb_rating: response.data.imdbRating,
-        imdb_votes: response.data.imdbVotes,
-        imdb_id: response.data.imdbID,
-        type: response.data.Type,
-        box_office: response.data.BoxOffice,
-        production: response.data.Production,
-        website: response.data.Website
-      };
-
+    if (result.success) {
       res.json({
         success: true,
-        data: movieDetails
+        data: result
       });
     } else {
       res.status(404).json({
         success: false,
-        message: response.data.Error || 'Movie not found'
+        message: result.error || 'Movie not found'
       });
     }
   } catch (error) {
     console.error('OMDB details error:', error);
     res.status(500).json({
       success: false,
-      message: 'Error fetching movie details'
+      message: 'Error fetching movie details',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Import movie from OMDB to database
+ */
+export const importMovieFromOMDB = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { imdbId, ...additionalData } = req.body;
+
+    if (!imdbId) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: 'imdbId is required'
+      });
+    }
+
+    // Check if movie already exists
+    const existing = await Movie.findOne({ imdb_id: imdbId }).session(session);
+    if (existing) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: 'Movie with this IMDB ID already exists',
+        data: existing
+      });
+    }
+
+    // Import movie data from OMDB
+    const movieData = await omdbService.importMovieFromOMDB(imdbId, additionalData);
+
+    // Create movie
+    const movie = new Movie(movieData);
+    await movie.save({ session });
+
+    // Create show instances if showtimes provided
+    const showInstances = await createShowInstancesFromMovie(movie, session);
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(201).json({
+      success: true,
+      message: 'Movie imported successfully from OMDB',
+      data: {
+        movie,
+        show_instances_created: showInstances.length
+      }
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+
+    console.error('Import movie from OMDB error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error importing movie from OMDB',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Import latest movies from OMDB API
+ * Fetches latest movies and imports them automatically
+ */
+export const importLatestMovies = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { limit = 20, year, theaters, basePrice = 200, totalSeats = 100 } = req.body;
+
+    // Get latest movies from OMDB
+    const latestMoviesResult = await omdbService.getLatestMovies(limit, year || new Date().getFullYear());
+
+    if (!latestMoviesResult.success || latestMoviesResult.movies.length === 0) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: 'No latest movies found from OMDB',
+        data: latestMoviesResult
+      });
+    }
+
+    const defaultTheaters = theaters || [
+      { name: 'PVR Cinemas', address: '123 Main Street, City Center', city: 'Mumbai' },
+      { name: 'INOX Cinemas', address: '456 Park Avenue, Downtown', city: 'Mumbai' },
+      { name: 'Cinepolis', address: '789 Mall Road, Shopping District', city: 'Mumbai' }
+    ];
+
+    const imported = [];
+    const skipped = [];
+    const errors = [];
+
+    // Process each movie
+    for (const movieInfo of latestMoviesResult.movies) {
+      try {
+        // Check if movie already exists
+        const existing = await Movie.findOne({ imdb_id: movieInfo.imdb_id }).session(session);
+        if (existing) {
+          skipped.push({
+            imdb_id: movieInfo.imdb_id,
+            title: movieInfo.title,
+            reason: 'Already exists'
+          });
+          continue;
+        }
+
+        // Get full movie details
+        const movieDetails = await omdbService.getMovieDetails(movieInfo.imdb_id);
+        
+        if (!movieDetails.success) {
+          errors.push({
+            imdb_id: movieInfo.imdb_id,
+            title: movieInfo.title,
+            error: movieDetails.error || 'Failed to fetch details'
+          });
+          continue;
+        }
+
+        // Parse and format movie data
+        const runtime = parseInt(movieDetails.runtime?.replace(/\D/g, '')) || 120;
+        const genres = movieDetails.genre?.split(',').map(g => g.trim()) || [];
+        const primaryGenre = genres[0] || 'Action';
+        const languages = movieDetails.language?.split(',').map(l => l.trim()) || [];
+        const primaryLanguage = languages[0] || 'English';
+
+        const ratingMap = {
+          'G': 'U',
+          'PG': 'U',
+          'PG-13': 'UA',
+          'R': 'A',
+          'NC-17': 'A'
+        };
+        const rating = ratingMap[movieDetails.rated] || 'UA';
+
+        const cast = movieDetails.actors?.split(',').map(a => a.trim()).slice(0, 5) || [];
+
+        // Generate showtimes (7 days, multiple theaters, multiple times)
+        const baseDate = new Date();
+        baseDate.setDate(baseDate.getDate() + 1); // Start from tomorrow
+        const showtimes = [];
+
+        for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+          const showDate = new Date(baseDate);
+          showDate.setDate(baseDate.getDate() + dayOffset);
+
+          // Select 2-3 random theaters for each date
+          const selectedTheaters = defaultTheaters
+            .sort(() => Math.random() - 0.5)
+            .slice(0, Math.floor(Math.random() * 2) + 2);
+
+          for (const theater of selectedTheaters) {
+            const timeSlots = [
+              { time: '10:00 AM', price: basePrice + Math.floor(Math.random() * 50) },
+              { time: '01:30 PM', price: basePrice + Math.floor(Math.random() * 50) },
+              { time: '05:00 PM', price: basePrice + Math.floor(Math.random() * 50) },
+              { time: '08:30 PM', price: basePrice + Math.floor(Math.random() * 50) }
+            ];
+
+            showtimes.push({
+              theatre: theater.name,
+              theatre_address: theater.address,
+              date: showDate,
+              location: theater.city,
+              timeslots: timeSlots
+            });
+          }
+        }
+
+        // Create movie data
+        const movieData = {
+          title: movieDetails.title,
+          description: movieDetails.plot || '',
+          genre: primaryGenre,
+          duration: runtime,
+          language: primaryLanguage,
+          rating: rating,
+          poster_url: movieDetails.poster_url,
+          imdb_id: movieDetails.imdb_id,
+          imdb_rating: movieDetails.imdb_rating,
+          director: movieDetails.director || '',
+          cast: cast,
+          // Legacy fields
+          theater: defaultTheaters[0].name,
+          theater_address: defaultTheaters[0].address,
+          show_date: baseDate,
+          show_time: '10:00 AM',
+          total_seats: totalSeats,
+          available_seats: totalSeats,
+          price: basePrice,
+          status: 'active',
+          featured: false,
+          showtimes: showtimes
+        };
+
+        const movie = new Movie(movieData);
+        await movie.save({ session });
+
+        // Create show instances
+        await createShowInstancesFromMovie(movie, session);
+
+        imported.push({
+          _id: movie._id,
+          title: movie.title,
+          imdb_id: movie.imdb_id
+        });
+      } catch (error) {
+        console.error(`Error importing movie ${movieInfo.imdb_id}:`, error);
+        errors.push({
+          imdb_id: movieInfo.imdb_id,
+          title: movieInfo.title,
+          error: error.message
+        });
+      }
+    }
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(201).json({
+      success: true,
+      message: `Successfully imported ${imported.length} latest movies`,
+      data: {
+        imported: imported.length,
+        skipped: skipped.length,
+        errors: errors.length,
+        movies: imported,
+        skipped_details: skipped,
+        error_details: errors
+      }
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+
+    console.error('Import latest movies error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error importing latest movies',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -153,9 +366,12 @@ export const getMovies = async (req, res) => {
     const sortConfig = {};
     sortConfig[sortBy] = sortOrder === 'desc' ? -1 : 1;
 
+    // Increase default limit to show more movies
+    const actualLimit = parseInt(limit) > 0 ? parseInt(limit) : 100;
+    
     const movies = await Movie.find(filter)
-      .limit(parseInt(limit))
-      .skip((parseInt(page) - 1) * parseInt(limit))
+      .limit(actualLimit)
+      .skip((parseInt(page) - 1) * actualLimit)
       .sort(sortConfig)
       .select('-createdAt -updatedAt -__v');
 
@@ -231,8 +447,29 @@ export const getMovieById = async (req, res) => {
       status: 'available'
     });
 
-    // fetch show instances for this movie
-    const showInstances = await ShowInstance.find({ movie_id: movie._id }).sort({ date: 1, time: 1 }).lean();
+    // fetch show instances for this movie (BookMyShow style)
+    const showInstances = await ShowInstance.find({ movie_id: movie._id })
+      .sort({ date: 1, time: 1 })
+      .lean();
+
+    // Group showtimes by date and theatre
+    const showtimesByDate = {};
+    showInstances.forEach(show => {
+      const dateKey = show.date.toISOString().split('T')[0];
+      if (!showtimesByDate[dateKey]) {
+        showtimesByDate[dateKey] = {};
+      }
+      if (!showtimesByDate[dateKey][show.theatre]) {
+        showtimesByDate[dateKey][show.theatre] = [];
+      }
+      showtimesByDate[dateKey][show.theatre].push({
+        show_id: show._id,
+        time: show.time,
+        base_price: show.base_price,
+        available_seats: show.available_seats,
+        total_seats: show.total_seats
+      });
+    });
 
     const similarMovies = await Movie.find({
       _id: { $ne: movie._id },
@@ -248,7 +485,8 @@ export const getMovieById = async (req, res) => {
         ...movie.toObject(),
         available_seats_count: availableSeats,
         similar_movies: similarMovies,
-        show_instances: showInstances // NEW: BookMyShow style
+        show_instances: showInstances, // All show instances
+        showtimes_by_date: showtimesByDate // Grouped by date and theatre
       }
     });
   } catch (error) {
@@ -803,5 +1041,150 @@ export const createShowInstancesForMovie = async (req, res) => {
     session.endSession();
     console.error('createShowInstancesForMovie error:', error);
     res.status(500).json({ success: false, message: 'Failed creating show instances' });
+  }
+};
+
+/**
+ * Get showtimes for a movie
+ */
+export const getMovieShowtimes = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { date } = req.query;
+
+    const movie = await Movie.findById(id);
+    if (!movie) {
+      return res.status(404).json({
+        success: false,
+        message: 'Movie not found'
+      });
+    }
+
+    // First, try to get from ShowInstance (BookMyShow style)
+    const filter = { movie_id: id };
+    
+    // Filter by date if provided
+    if (date) {
+      const startDate = new Date(date);
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(date);
+      endDate.setHours(23, 59, 59, 999);
+      filter.date = { $gte: startDate, $lte: endDate };
+    } else {
+      // Only show future dates
+      filter.date = { $gte: new Date() };
+    }
+
+    let showInstances = await ShowInstance.find(filter)
+      .sort({ date: 1, time: 1 })
+      .lean();
+
+    // If no ShowInstances exist, try to create them from movie.showtimes
+    if (showInstances.length === 0 && movie.showtimes && movie.showtimes.length > 0) {
+      // Create show instances from movie.showtimes
+      try {
+        await createShowInstancesFromMovie(movie);
+        // Fetch again
+        showInstances = await ShowInstance.find(filter)
+          .sort({ date: 1, time: 1 })
+          .lean();
+      } catch (err) {
+        console.error('Error creating show instances:', err);
+      }
+    }
+
+    // If still no ShowInstances, fallback to movie.showtimes array
+    if (showInstances.length === 0 && movie.showtimes && movie.showtimes.length > 0) {
+      const grouped = {};
+      movie.showtimes.forEach(showtime => {
+        const showDate = new Date(showtime.date);
+        // Skip past dates
+        if (showDate < new Date()) return;
+        
+        // Apply date filter if provided
+        if (date) {
+          const filterDate = new Date(date);
+          if (showDate.toISOString().split('T')[0] !== filterDate.toISOString().split('T')[0]) {
+            return;
+          }
+        }
+        
+        const dateKey = showDate.toISOString().split('T')[0];
+        if (!grouped[dateKey]) {
+          grouped[dateKey] = {};
+        }
+        if (!grouped[dateKey][showtime.theatre]) {
+          grouped[dateKey][showtime.theatre] = {
+            theatre: showtime.theatre,
+            theatre_address: showtime.theatre_address || '',
+            location: showtime.location || '',
+            shows: []
+          };
+        }
+        
+        // Add timeslots
+        if (showtime.timeslots && showtime.timeslots.length > 0) {
+          showtime.timeslots.forEach(slot => {
+            grouped[dateKey][showtime.theatre].shows.push({
+              show_id: `temp_${dateKey}_${showtime.theatre}_${slot.time}`,
+              time: slot.time,
+              base_price: slot.price || movie.price || 200,
+              available_seats: movie.available_seats || 0,
+              total_seats: movie.total_seats || 100
+            });
+          });
+        }
+      });
+
+      return res.json({
+        success: true,
+        data: {
+          movie_id: id,
+          movie_title: movie.title,
+          showtimes: grouped,
+          dates: Object.keys(grouped).sort()
+        }
+      });
+    }
+
+    // Group ShowInstances by date and theatre
+    const grouped = {};
+    showInstances.forEach(show => {
+      const dateKey = show.date.toISOString().split('T')[0];
+      if (!grouped[dateKey]) {
+        grouped[dateKey] = {};
+      }
+      if (!grouped[dateKey][show.theatre]) {
+        grouped[dateKey][show.theatre] = {
+          theatre: show.theatre,
+          theatre_address: show.theatre_address || '',
+          location: show.location || '',
+          shows: []
+        };
+      }
+      grouped[dateKey][show.theatre].shows.push({
+        show_id: show._id.toString(),
+        time: show.time,
+        base_price: show.base_price,
+        available_seats: show.available_seats,
+        total_seats: show.total_seats
+      });
+    });
+
+    res.json({
+      success: true,
+      data: {
+        movie_id: id,
+        movie_title: movie.title,
+        showtimes: grouped,
+        dates: Object.keys(grouped).sort()
+      }
+    });
+  } catch (error) {
+    console.error('Get movie showtimes error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching showtimes'
+    });
   }
 };

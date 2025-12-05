@@ -8,10 +8,13 @@ import {
   deleteMovie,
   getMovieSeats,        // legacy seats
   getFeaturedMovies,
+  getMovieShowtimes,    // Get showtimes for a movie
 
   // OMDB external API
   getMoviesFromAPI,
   getMovieDetailsFromAPI,
+  importMovieFromOMDB,
+  importLatestMovies,
 
   // BookMyShow system
   getShowSeats,
@@ -28,6 +31,8 @@ const router = express.Router()
 -------------------------------------------*/
 router.get('/api/search', getMoviesFromAPI)
 router.get('/api/details/:imdbId', getMovieDetailsFromAPI)
+router.post('/api/import', auth, admin, importMovieFromOMDB) // Admin only - import single movie
+router.post('/api/import-latest', auth, admin, importLatestMovies) // Admin only - import latest movies
 
 /* ------------------------------------------
    🔹 BOOKMYSHOW STYLE SHOW-INSTANCE ROUTES
@@ -45,6 +50,9 @@ router.post('/:id/create-show-instances', auth, admin, createShowInstancesForMov
 
 router.get('/', getMovies)
 router.get('/featured', getFeaturedMovies)
+
+// Get showtimes for a movie
+router.get('/:id/showtimes', getMovieShowtimes)
 
 // legacy seat endpoint (item_type = 'movie')
 router.get('/:movieId/seats', getMovieSeats)

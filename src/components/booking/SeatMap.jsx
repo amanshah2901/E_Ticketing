@@ -182,8 +182,15 @@ const SeatMap = ({
         <div className="bg-gray-50 rounded-lg p-6">
           {renderScreen()}
 
-          <div className="space-y-4">
-            {Object.entries(safeSeats).map(([row, rowSeats]) => (
+          {Object.keys(safeSeats).length === 0 ? (
+            <div className="text-center py-12">
+              <Armchair className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+              <p className="text-gray-500 mb-2">No seats available</p>
+              <p className="text-sm text-gray-400">Please select a date and showtime first</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {Object.entries(safeSeats).map(([row, rowSeats]) => (
               <div key={row} className="flex items-center justify-center gap-2">
                 <div className="w-8 text-center font-medium text-gray-700">
                   {row}
@@ -229,7 +236,8 @@ const SeatMap = ({
                 </div>
               </div>
             ))}
-          </div>
+            </div>
+          )}
         </div>
 
         {hoveredSeat && (

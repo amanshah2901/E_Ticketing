@@ -1,11 +1,15 @@
 import dotenv from 'dotenv';
-dotenv.config(); // MUST be at the very top
-
-import express from 'express';
-import mongoose from 'mongoose';
-import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.join(__dirname, '.env') }); // MUST be at the very top
+
+import express from 'express'; 
+import mongoose from 'mongoose';
+import cors from 'cors';
 
 // Debug: Check if environment variables are loaded
 console.log('Environment check:');
@@ -23,9 +27,7 @@ import bookingRoutes from './routes/bookings.js';
 import paymentRoutes from './routes/payments.js';
 import walletRoutes from './routes/wallet.js';
 import adminRoutes from './routes/admin.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import searchRoutes from './routes/search.js';
 
 const app = express();
 
@@ -45,6 +47,7 @@ app.use('/api/bookings', bookingRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/search', searchRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

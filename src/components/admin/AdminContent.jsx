@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
+import OMDBMovieImporter from '@/components/movie/OMDBMovieImporter'
+import { moviesAPI } from '@/api/services'
 import { 
   Plus, 
   Search, 
@@ -13,12 +15,16 @@ import {
   Film,
   Bus,
   Music,
-  Mountain
+  Mountain,
+  Download,
+  RefreshCw
 } from 'lucide-react'
 
 const AdminContent = () => {
   const [activeTab, setActiveTab] = useState('movies')
   const [searchTerm, setSearchTerm] = useState('')
+  const [showOMDBImporter, setShowOMDBImporter] = useState(false)
+  const [importingLatest, setImportingLatest] = useState(false)
 
   // Mock data - in real app, this would come from API
   const mockData = {
@@ -60,7 +66,13 @@ const AdminContent = () => {
             className="w-64"
           />
         </div>
-        <Button>
+        <Button onClick={() => {
+          if (type === 'movies') {
+            setShowOMDBImporter(true)
+          } else {
+            alert(`Add ${type.slice(0, -1)} functionality coming soon!`)
+          }
+        }}>
           <Plus className="w-4 h-4 mr-2" />
           Add {type.slice(0, -1)}
         </Button>
@@ -156,7 +168,49 @@ const AdminContent = () => {
             </TabsTrigger>
           </TabsList>
           
-          <TabsContent value="movies">
+          <TabsContent value="movies" className="space-y-4">
+            <div className="flex justify-between items-center gap-2">
+              <div className="flex gap-2">
+                <Button 
+                  onClick={() => setShowOMDBImporter(!showOMDBImporter)} 
+                  variant="outline"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  {showOMDBImporter ? 'Hide' : 'Import from OMDB'}
+                </Button>
+                <Button 
+                  onClick={async () => {
+                    setImportingLatest(true)
+                    try {
+                      const response = await moviesAPI.importLatestMovies({ limit: 20 })
+                      if (response.success) {
+                        alert(`Successfully imported ${response.data.imported} movies!`)
+                        // Refresh movies list here if needed
+                      } else {
+                        alert('Failed to import movies: ' + (response.message || 'Unknown error'))
+                      }
+                    } catch (error) {
+                      console.error('Import error:', error)
+                      alert('Error importing latest movies: ' + (error.message || 'Unknown error'))
+                    } finally {
+                      setImportingLatest(false)
+                    }
+                  }}
+                  variant="default"
+                  disabled={importingLatest}
+                >
+                  <RefreshCw className={`w-4 h-4 mr-2 ${importingLatest ? 'animate-spin' : ''}`} />
+                  {importingLatest ? 'Importing...' : 'Import Latest Movies'}
+                </Button>
+              </div>
+            </div>
+            {showOMDBImporter && (
+              <OMDBMovieImporter onMovieImported={() => {
+                setShowOMDBImporter(false)
+                // Refresh movies list here if needed
+                window.location.reload() // Temporary: reload to show new movies
+              }} />
+            )}
             <ContentTable data={mockData.movies} type="movies" />
           </TabsContent>
           

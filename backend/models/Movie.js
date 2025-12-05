@@ -151,7 +151,9 @@ movieSchema.index({ status: 1, show_date: 1 });
 movieSchema.index({ theatre: 1, show_date: 1 });
 movieSchema.index({ featured: 1 });
 movieSchema.index({ genre: 1 });
-movieSchema.index({ title: "text", genre: "text" });
+// Text index removed - MongoDB doesn't support Hindi language override
+// Use regex search instead for better language support
+// movieSchema.index({ title: "text", genre: "text" });
 
 /* ---------------------------------------------
    Virtuals

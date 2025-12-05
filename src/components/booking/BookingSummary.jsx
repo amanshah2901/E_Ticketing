@@ -153,28 +153,24 @@ const BookingSummary = ({
           <div className="space-y-1 text-sm">
             <div className="flex justify-between">
               <span>Base Price</span>
-              <span>{formatCurrency(basePrice || totalAmount)}</span>
+              <span>{formatCurrency(basePrice || 0)}</span>
             </div>
             
-            {bookingFee > 0 && (
-              <div className="flex justify-between">
-                <span>Booking Fee</span>
-                <span>{formatCurrency(bookingFee)}</span>
-              </div>
-            )}
+            <div className="flex justify-between">
+              <span>Booking Fee (5%)</span>
+              <span>{formatCurrency(bookingFee || 0)}</span>
+            </div>
             
-            {tax > 0 && (
-              <div className="flex justify-between">
-                <span>Tax</span>
-                <span>{formatCurrency(tax)}</span>
-              </div>
-            )}
+            <div className="flex justify-between">
+              <span>GST (5%)</span>
+              <span>{formatCurrency(tax || 0)}</span>
+            </div>
             
             <Separator />
             
             <div className="flex justify-between font-semibold text-base">
               <span>Total Amount</span>
-              <span className="text-green-600">{formatCurrency(totalAmount)}</span>
+              <span className="text-green-600">{formatCurrency(totalAmount || 0)}</span>
             </div>
           </div>
         </div>

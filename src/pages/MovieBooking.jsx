@@ -1,5 +1,5 @@
 // src/pages/MovieBooking.jsx
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -12,6 +12,8 @@ import SeatMap from '@/components/booking/SeatMap'
 import BookingSummary from '@/components/booking/BookingSummary'
 import { moviesAPI } from '@/api/services'
 import { formatCurrency, formatDate } from '@/utils'
+import DatePicker from '@/components/movie/DatePicker'
+import TimeSlotSelector from '@/components/movie/TimeSlotSelector'
 import {
   Calendar,
   Clock,
@@ -32,7 +34,11 @@ const MovieBooking = () => {
   const [selectedSeats, setSelectedSeats] = useState([])
   const [viewerDetails, setviewerDetails] = useState([{ name: '', age: '', gender: '' }])
   const [loading, setLoading] = useState(true)
-  const [step, setStep] = useState(1) // 1: Select Seats, 2: viewer Details, 3: Review
+  const [step, setStep] = useState(0) // 0: Select Date/Time, 1: Select Seats, 2: viewer Details, 3: Review
+  const [selectedDate, setSelectedDate] = useState(null)
+  const [selectedShowtime, setSelectedShowtime] = useState(null)
+  const [showtimes, setShowtimes] = useState({})
+  const [isLegacyMovie, setIsLegacyMovie] = useState(false) // Movies without showtimes array
 
   const movieId = searchParams.get('id')
 
@@ -99,47 +105,241 @@ const MovieBooking = () => {
   const fetchMovieDetails = async () => {
     setLoading(true)
     try {
-      // Use Promise.all so both requests are done concurrently
-      const [movieResp, seatsResp] = await Promise.allSettled([
-        moviesAPI.getMovieById(movieId),
-        moviesAPI.getMovieSeats(movieId)
-      ])
+      // Fetch movie details
+      const movieResp = await moviesAPI.getMovieById(movieId)
+      const movieData = movieResp?.movie ?? movieResp
 
-      // normalize movie
-      let movieData = null
-      if (movieResp.status === 'fulfilled') {
-        // moviesAPI returns res.data.data according to your service
-        const mv = movieResp.value
-        // movie might be under mv.movie or mv (depending on backend)
-        movieData = mv?.movie ?? mv
+      if (!movieData) {
+        setMovie(null)
+        return
       }
 
-      // normalize seats
-      let seatsDataRaw = null
-      if (seatsResp.status === 'fulfilled') {
-        seatsDataRaw = seatsResp.value
+      setMovie(movieData)
+
+      // Always fetch showtimes from API (handles both new and legacy)
+      try {
+        const showtimesResp = await moviesAPI.getMovieShowtimes(movieId)
+        // Handle response structure: { showtimes: {...} } or direct showtimes object
+        const showtimesData = showtimesResp?.showtimes || showtimesResp || {}
+        setShowtimes(showtimesData)
+        setIsLegacyMovie(false)
+        
+        // Auto-select first available date and showtime if none selected
+        if (!selectedDate && Object.keys(showtimesData).length > 0) {
+          const firstDate = Object.keys(showtimesData).sort()[0]
+          if (firstDate) {
+            setSelectedDate(firstDate)
+            const firstTheatre = Object.keys(showtimesData[firstDate])[0]
+            if (firstTheatre && showtimesData[firstDate][firstTheatre]?.shows?.length > 0) {
+              setSelectedShowtime(showtimesData[firstDate][firstTheatre].shows[0])
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching showtimes:', err)
+        // Fallback to legacy system
+        const hasLegacyShow = movieData.show_date && movieData.show_time
+        if (hasLegacyShow) {
+        // Legacy system: create showtime structure from show_date/show_time
+        // Allow user to select from available dates (show_date and next 7 days)
+        const legacyDate = new Date(movieData.show_date).toISOString().split('T')[0]
+        const legacyShowtimes = {}
+        
+        // Create showtimes for the original date and next 7 days
+        for (let i = 0; i < 8; i++) {
+          const date = new Date(movieData.show_date)
+          date.setDate(date.getDate() + i)
+          const dateKey = date.toISOString().split('T')[0]
+          
+          // Create multiple time slots for each date (morning, afternoon, evening, night)
+          const timeSlots = [
+            { time: '10:00 AM', base_price: movieData.price || 200 },
+            { time: '1:30 PM', base_price: movieData.price || 200 },
+            { time: '5:00 PM', base_price: movieData.price || 200 },
+            { time: '8:30 PM', base_price: movieData.price || 200 }
+          ]
+          
+          // Use original show_time for the original date
+          if (i === 0) {
+            timeSlots[0].time = movieData.show_time
+          }
+          
+          legacyShowtimes[dateKey] = {
+            [movieData.theater || 'Theater']: {
+              theatre: movieData.theater || 'Theater',
+              theatre_address: movieData.theater_address || '',
+              location: movieData.theater_address || '',
+              shows: timeSlots.map((slot, idx) => ({
+                show_id: `legacy_${dateKey}_${idx}`,
+                time: slot.time,
+                base_price: slot.base_price,
+                available_seats: movieData.available_seats || 0,
+                total_seats: movieData.total_seats || 100
+              }))
+            }
+          }
+        }
+        
+          setShowtimes(legacyShowtimes)
+          setIsLegacyMovie(true)
+          // Auto-select legacy date and first showtime if none selected
+          if (!selectedDate) {
+            setSelectedDate(legacyDate)
+            const firstShow = legacyShowtimes[legacyDate][movieData.theater || 'Theater'].shows[0]
+            setSelectedShowtime(firstShow)
+            // Auto-fetch seats for legacy movie
+            setTimeout(() => {
+              fetchSeatsForShowtime('legacy')
+            }, 100)
+          }
+        } else {
+          setShowtimes({})
+          setIsLegacyMovie(false)
+        }
       }
-
-      // If seatsResp contains { movie, seats, seat_layout } structure (as in your preview),
-      // moviesAPI.getMovieSeats returns res.data.data already, so seatsDataRaw may equal that.
-      // Normalize robustly:
-      const normalizedSeats = normalizeSeats(seatsDataRaw)
-
-      // console logs for debugging (remove in production)
-      // eslint-disable-next-line no-console
-      console.log('Movie API result:', movieResp, 'Parsed movie:', movieData)
-      // eslint-disable-next-line no-console
-      console.log('Seats raw:', seatsDataRaw, 'Normalized seats:', normalizedSeats)
-
-      setMovie(movieData ?? null)
-      setSeats(normalizedSeats)
     } catch (error) {
-      console.error('Error fetching movie or seats:', error)
+      console.error('Error fetching movie:', error)
       setMovie(null)
-      setSeats({})
+      setShowtimes({})
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleDateSelect = async (date) => {
+    // Normalize date to YYYY-MM-DD format
+    let dateStr = ''
+    if (typeof date === 'string') {
+      dateStr = date.split('T')[0]
+    } else if (date instanceof Date) {
+      dateStr = date.toISOString().split('T')[0]
+    } else if (date) {
+      const dateObj = new Date(date)
+      if (!isNaN(dateObj.getTime())) {
+        dateStr = dateObj.toISOString().split('T')[0]
+      } else {
+        dateStr = String(date).split('T')[0]
+      }
+    }
+    
+    setSelectedDate(dateStr || date)
+    setSeats({}) // Clear seats when date changes
+    setSelectedSeats([]) // Clear selected seats
+    
+    // IMPORTANT: Don't clear showtimes - they should persist
+    // Only update selected showtime based on the new date
+    if (dateStr && showtimes && Object.keys(showtimes).length > 0) {
+      const dateShowtimes = showtimes[dateStr]
+      if (dateShowtimes && Object.keys(dateShowtimes).length > 0) {
+        const firstTheatre = Object.keys(dateShowtimes)[0]
+        if (firstTheatre && dateShowtimes[firstTheatre]?.shows?.length > 0) {
+          // Auto-select first showtime for the new date
+          const firstShow = dateShowtimes[firstTheatre].shows[0]
+          setSelectedShowtime(firstShow)
+          // Auto-fetch seats for the new showtime
+          setTimeout(() => {
+            fetchSeatsForShowtime(firstShow.show_id)
+          }, 100)
+        } else {
+          setSelectedShowtime(null)
+        }
+      } else {
+        // No showtimes for this date - but keep showtimes state intact
+        setSelectedShowtime(null)
+      }
+    } else {
+      // No showtimes loaded yet - but don't clear showtimes state
+      setSelectedShowtime(null)
+    }
+  }
+
+  const handleShowtimeSelect = async (showtime) => {
+    setSelectedShowtime(showtime)
+    setSeats({}) // Clear previous seats
+    setSelectedSeats([]) // Clear selected seats
+    await fetchSeatsForShowtime(showtime.show_id)
+  }
+
+  const fetchSeatsForShowtime = async (showId) => {
+    try {
+      let seatsData = null
+      
+      if (showId === 'legacy' || showId?.startsWith('legacy_') || isLegacyMovie) {
+        // For legacy movies, use the legacy seats endpoint
+        const seatsResp = await moviesAPI.getMovieSeats(movieId)
+        console.log('Legacy seats response:', seatsResp)
+        // Handle different response structures
+        if (seatsResp?.seats) {
+          seatsData = seatsResp.seats
+        } else if (seatsResp?.data?.seats) {
+          seatsData = seatsResp.data.seats
+        } else if (typeof seatsResp === 'object' && !Array.isArray(seatsResp)) {
+          seatsData = seatsResp
+        }
+      } else {
+        // For new system, use show-specific seats endpoint
+        const seatsResp = await moviesAPI.getShowSeats(showId)
+        console.log('Show seats response:', seatsResp)
+        // Handle different response structures
+        if (seatsResp?.seats) {
+          seatsData = seatsResp.seats
+        } else if (seatsResp?.data?.seats) {
+          seatsData = seatsResp.data.seats
+        } else if (typeof seatsResp === 'object' && !Array.isArray(seatsResp)) {
+          seatsData = seatsResp
+        }
+      }
+      
+      if (seatsData) {
+        const normalizedSeats = normalizeSeats(seatsData)
+        console.log('Normalized seats:', normalizedSeats, 'Keys:', Object.keys(normalizedSeats))
+        setSeats(normalizedSeats)
+      } else {
+        console.warn('No seats data received, generating mock seats')
+        // Generate mock seats if none exist (for testing)
+        const mockSeats = generateMockSeats()
+        setSeats(mockSeats)
+      }
+    } catch (error) {
+      console.error('Error fetching seats:', error)
+      // Generate mock seats on error (for testing)
+      const mockSeats = generateMockSeats()
+      setSeats(mockSeats)
+    }
+  }
+
+  // Generate mock seats for testing if API fails
+  const generateMockSeats = () => {
+    const rows = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+    const seatsPerRow = 10
+    const mockSeats = {}
+    
+    rows.forEach((row, rowIdx) => {
+      mockSeats[row] = []
+      for (let col = 1; col <= seatsPerRow; col++) {
+        let seatType = 'regular'
+        let price = movie?.price || 200
+        
+        if (row === 'A' || row === 'B') {
+          seatType = 'vip'
+          price = Math.round(price * 1.5)
+        } else if (row === 'C' || row === 'D') {
+          seatType = 'premium'
+          price = Math.round(price * 1.2)
+        }
+        
+        mockSeats[row].push({
+          seat_number: `${row}${col}`,
+          row: row,
+          column: col,
+          status: Math.random() > 0.7 ? 'booked' : 'available',
+          seat_type: seatType,
+          price: price
+        })
+      }
+    })
+    
+    return mockSeats
   }
 
   const handleSeatSelect = (selected) => {
@@ -160,23 +360,54 @@ const MovieBooking = () => {
     setviewerDetails(newDetails)
   }
 
-  const calculateTotal = () => {
-    if (!movie || selectedSeats.length === 0) return 0
+  const pricing = useMemo(() => {
+    if (!movie || selectedSeats.length === 0) {
+      return { subtotal: 0, bookingFee: 0, gst: 0, total: 0 }
+    }
 
     const seatPrices = selectedSeats.map(seatNumber => {
-      // find seat across rows
-      const seat = Object.values(seats).flat().find(s => s.seat_number === seatNumber || s.seat_number === String(seatNumber))
-      return seat?.price ?? movie.price ?? 0
+      const seat = Object.values(seats).flat().find(
+        s => s.seat_number === seatNumber || s.seat_number === String(seatNumber)
+      )
+      return seat?.price ?? selectedShowtime?.base_price ?? movie.price ?? 0
     })
 
     const subtotal = seatPrices.reduce((sum, p) => sum + (p || 0), 0)
     const bookingFee = subtotal * 0.05
-    const tax = (subtotal + bookingFee) * 0.05
+    const gst = subtotal * 0.05
+    const total = Math.round((subtotal + bookingFee + gst) * 100) / 100
 
-    return subtotal + bookingFee + tax
-  }
+    return {
+      subtotal: Math.round(subtotal * 100) / 100,
+      bookingFee: Math.round(bookingFee * 100) / 100,
+      gst: Math.round(gst * 100) / 100,
+      total
+    }
+  }, [movie, selectedSeats, seats, selectedShowtime])
+
+  const calculateTotal = () => pricing.total
 
   const handleContinue = () => {
+    if (step === 0) {
+      if (!selectedDate) {
+        alert('Please select a date')
+        return
+      }
+      if (!selectedShowtime) {
+        alert('Please select a showtime')
+        return
+      }
+      // Ensure seats are loaded before proceeding
+      if (Object.keys(seats).length === 0) {
+        fetchSeatsForShowtime(selectedShowtime.show_id).then(() => {
+          setStep(1)
+        })
+      } else {
+        setStep(1)
+      }
+      return
+    }
+
     if (step === 1 && selectedSeats.length === 0) {
       alert('Please select at least one seat')
       return
@@ -201,15 +432,19 @@ const MovieBooking = () => {
       const bookingData = {
         booking_type: 'movie',
         item_id: movieId,
+        showtime_id: selectedShowtime?.show_id,
         quantity: selectedSeats.length,
         seats: selectedSeats,
         viewer_details: viewerDetails,
-        total_amount: calculateTotal(),
+        total_amount: pricing.total,
         item: movie,
-        basePrice: movie?.price ?? 0,
-        eventDate: movie?.show_date,
-        eventTime: movie?.show_time,
-        venue: `${movie?.theater ?? ''}${movie?.theater_address ? ', ' + movie.theater_address : ''}`
+        basePrice: pricing.subtotal,
+        bookingFee: pricing.bookingFee,
+        gst: pricing.gst,
+        pricing,
+        eventDate: selectedDate,
+        eventTime: selectedShowtime?.time,
+        venue: `${selectedShowtime?.theatre ?? movie?.theater ?? ''}${selectedShowtime?.theatre_address || movie?.theater_address ? ', ' + (selectedShowtime?.theatre_address || movie.theater_address) : ''}`
       }
       navigate('/payment', { state: { bookingData } })
       return
@@ -244,9 +479,7 @@ const MovieBooking = () => {
     )
   }
 
-  // derive layout if needed
-  const rows = Object.keys(seats || {})
-  const seatsPerRow = rows.length > 0 ? (seats[rows[0]]?.length ?? 0) : 0
+  // derive layout if needed (moved inside component to avoid stale closure)
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -254,12 +487,12 @@ const MovieBooking = () => {
         {/* Progress Steps */}
         <div className="mb-8">
           <div className="flex items-center justify-center">
-            {[1, 2, 3].map((stepNumber) => (
+            {[0, 1, 2, 3].map((stepNumber) => (
               <React.Fragment key={stepNumber}>
                 <div className={`flex items-center justify-center w-10 h-10 rounded-full ${
                   step >= stepNumber ? 'bg-indigo-600 text-white' : 'bg-gray-300 text-gray-600'
                 } font-semibold`}>
-                  {stepNumber}
+                  {stepNumber + 1}
                 </div>
                 {stepNumber < 3 && (
                   <div className={`w-24 h-1 ${step > stepNumber ? 'bg-indigo-600' : 'bg-gray-300'}`} />
@@ -268,6 +501,7 @@ const MovieBooking = () => {
             ))}
           </div>
           <div className="flex justify-center mt-2 text-sm text-gray-600">
+            <div className="w-32 text-center">Date & Time</div>
             <div className="w-32 text-center">Select Seats</div>
             <div className="w-32 text-center">viewer Details</div>
             <div className="w-32 text-center">Review & Pay</div>
@@ -311,15 +545,23 @@ const MovieBooking = () => {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                       <div className="flex items-center gap-2">
                         <Calendar className="w-4 h-4 text-gray-400" />
-                        <span>{movie.show_date ? formatDate(movie.show_date) : 'TBD'}</span>
+                        <span>
+                          {selectedDate 
+                            ? formatDate(new Date(selectedDate)) 
+                            : (movie.show_date ? formatDate(movie.show_date) : 'Select date')}
+                        </span>
                       </div>
                       <div className="flex items-center gap-2">
                         <Clock className="w-4 h-4 text-gray-400" />
-                        <span>{movie.show_time || 'TBD'}</span>
+                        <span>
+                          {selectedShowtime?.time || movie.show_time || 'Select showtime'}
+                        </span>
                       </div>
                       <div className="flex items-center gap-2">
                         <MapPin className="w-4 h-4 text-gray-400" />
-                        <span>{movie.theater || ''}</span>
+                        <span>
+                          {selectedShowtime?.theatre || movie.theater || 'Select showtime'}
+                        </span>
                       </div>
                     </div>
 
@@ -331,16 +573,58 @@ const MovieBooking = () => {
               </CardContent>
             </Card>
 
+            {/* Step 0: Date & Time Selection */}
+            {step === 0 && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div>
+                  <h3 className="text-lg font-semibold mb-4">Select Date</h3>
+                  <DatePicker
+                    selectedDate={selectedDate}
+                    onDateSelect={handleDateSelect}
+                    minDate={new Date().toISOString()}
+                    maxDate={30}
+                  />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold mb-4">Select Showtime</h3>
+                  {selectedDate ? (
+                    <TimeSlotSelector
+                      showtimes={showtimes}
+                      selectedShowtime={selectedShowtime}
+                      onSelect={handleShowtimeSelect}
+                      selectedDate={selectedDate}
+                    />
+                  ) : (
+                    <div className="text-center py-8 text-gray-500 border rounded-lg">
+                      <Clock className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                      <p>Please select a date first</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Step 1: Seat Selection */}
             {step === 1 && (
-              <SeatMap
-                seats={seats}
-                layout={{ rows, seatsPerRow }}
-                onSeatSelect={handleSeatSelect}
-                selectedSeats={selectedSeats}
-                maxSeats={10}
-                type="movie"
-              />
+              <>
+                {Object.keys(seats).length === 0 ? (
+                  <Card>
+                    <CardContent className="p-8 text-center">
+                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+                      <p className="text-gray-600">Loading seats...</p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <SeatMap
+                    seats={seats}
+                    layout={{ rows: Object.keys(seats), seatsPerRow: seats[Object.keys(seats)[0]]?.length || 0 }}
+                    onSeatSelect={handleSeatSelect}
+                    selectedSeats={selectedSeats}
+                    maxSeats={10}
+                    type="movie"
+                  />
+                )}
+              </>
             )}
 
             {/* Step 2: viewer Details */}
@@ -452,11 +736,13 @@ const MovieBooking = () => {
                 selectedSeats,
                 quantity: selectedSeats.length,
                 viewerDetails,
-                totalAmount: calculateTotal(),
-                basePrice: movie.price,
-                eventDate: movie.show_date,
-                eventTime: movie.show_time,
-                venue: `${movie.theater}${movie.theater_address ? ', ' + movie.theater_address : ''}`
+                totalAmount: pricing.total,
+                basePrice: pricing.subtotal,
+                bookingFee: pricing.bookingFee,
+                tax: pricing.gst,
+                eventDate: selectedDate || movie.show_date,
+                eventTime: selectedShowtime?.time || movie.show_time,
+                venue: `${selectedShowtime?.theatre || movie.theater || ''}${selectedShowtime?.theatre_address || movie.theater_address ? ', ' + (selectedShowtime?.theatre_address || movie.theater_address) : ''}`
               }}
               type="movie"
               showActions={false}
@@ -480,12 +766,13 @@ const MovieBooking = () => {
                     <Button
                       onClick={handleContinue}
                       disabled={
+                        (step === 0 && (!selectedDate || !selectedShowtime)) ||
                         (step === 1 && selectedSeats.length === 0) ||
                         (step === 2 && viewerDetails.some(p => !p.name || !p.age || !p.gender))
                       }
                       className="flex-1"
                     >
-                      {step === 3 ? 'Proceed to Payment' : 'Continue'}
+                      {step === 0 ? 'Continue to Seats' : step === 3 ? 'Proceed to Payment' : 'Continue'}
                     </Button>
                   </div>
                 </div>

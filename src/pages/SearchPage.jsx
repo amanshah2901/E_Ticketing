@@ -32,6 +32,7 @@ import {
   busesAPI,
   eventsAPI,
   toursAPI,
+  searchAPI,
 } from "@/api/services";
 
 import { formatCurrency, formatDate } from "@/utils";
@@ -307,10 +308,8 @@ const SearchPage = () => {
   useEffect(() => {
     setSearchQuery(query);
     setActiveTab(typeFromUrl);
-    // run initial search if query or type present
-    if (query || typeFromUrl !== "all") {
-      performSearch(query, typeFromUrl);
-    }
+    // Always run search to show all data, even without query
+    performSearch(query, typeFromUrl);
     setGenreOpen(false);
     setCityOpen(false);
     setPriceOpen(false);
@@ -323,9 +322,33 @@ const SearchPage = () => {
       setLoading(true);
 
       try {
+        // Use unified search API if there's a search query
+        if (search && search.trim()) {
+          try {
+            const unifiedResults = await searchAPI.unifiedSearch(search.trim());
+            
+            // Filter results based on active tab
+            const newResults = {
+              movies: tab === "all" || tab === "movie" ? (unifiedResults.movies || []) : [],
+              buses: tab === "all" || tab === "bus" ? (unifiedResults.buses || []) : [],
+              events: tab === "all" || tab === "event" ? (unifiedResults.events || []) : [],
+              tours: tab === "all" || tab === "tour" ? (unifiedResults.tours || []) : []
+            };
+            
+            setResults(newResults);
+            return;
+          } catch (unifiedErr) {
+            console.error("Unified search error, falling back to individual APIs:", unifiedErr);
+            // Fall through to individual API calls
+          }
+        }
+
+        // If no search query, fetch all items for the selected tab
+
+        // Fallback to individual API calls (for filtered searches or if unified search fails)
         const params = {
           search,
-          limit: 20,
+          limit: 100, // Increased to show all movies
           // pass filters only if set
           ...(filters.genre ? { genre: filters.genre } : {}),
           ...(filters.city ? { city: filters.city } : {}),

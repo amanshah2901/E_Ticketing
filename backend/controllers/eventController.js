@@ -342,19 +342,22 @@ export const getEventsByCategory = async (req, res) => {
 // Search events
 export const searchEvents = async (req, res) => {
   try {
-    const { query, city, category, date } = req.query;
+    const { search, query, city, category, date } = req.query;
 
     const filter = {
       status: 'upcoming',
       event_date: { $gte: new Date() }
     };
 
-    if (query) {
+    // Support both 'search' and 'query' parameters for compatibility
+    const searchTerm = search || query;
+    if (searchTerm) {
       filter.$or = [
-        { title: new RegExp(query, 'i') },
-        { description: new RegExp(query, 'i') },
-        { venue: new RegExp(query, 'i') },
-        { organizer: new RegExp(query, 'i') }
+        { title: new RegExp(searchTerm, 'i') },
+        { description: new RegExp(searchTerm, 'i') },
+        { venue: new RegExp(searchTerm, 'i') },
+        { organizer: new RegExp(searchTerm, 'i') },
+        { city: new RegExp(searchTerm, 'i') }
       ];
     }
 

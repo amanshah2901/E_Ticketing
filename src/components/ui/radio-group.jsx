@@ -6,21 +6,34 @@ import { cn } from "@/utils/cn";
  */
 export const RadioGroup = React.forwardRef(
   ({ className, value, onValueChange, name = "radio-group", children, ...props }, ref) => {
+    const cloneRecursively = (child) => {
+      if (!child || typeof child !== 'object' || !('props' in child)) return child;
+
+      // If this is the RadioGroupItem, clone it with new props
+      if (child.type === RadioGroupItem) {
+        return React.cloneElement(child, {
+          checked: child.props.value === value,
+          onChange: () => onValueChange(child.props.value),
+          name,
+        });
+      }
+
+      // If it has children, map over them and continue recursively
+      if (child.props.children) {
+        const newChildren = React.Children.map(child.props.children, cloneRecursively);
+        return React.cloneElement(child, {}, newChildren);
+      }
+
+      return child;
+    };
+
     return (
       <div
         ref={ref}
         className={cn("grid gap-2", className)}
         {...props}
       >
-        {React.Children.map(children, (child) => {
-          if (!child) return null;
-
-          return React.cloneElement(child, {
-            checked: child.props.value === value,
-            onChange: () => onValueChange(child.props.value),
-            name,                              // <-- ★ Important (group binding)
-          });
-        })}
+        {React.Children.map(children, cloneRecursively)}
       </div>
     );
   }

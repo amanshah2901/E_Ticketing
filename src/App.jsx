@@ -10,6 +10,7 @@ import TourBooking from './pages/TourBooking'
 import Payment from './pages/Payment'
 import Confirmation from './pages/Confirmation'
 import MyBookings from './pages/MyBookings'
+import TicketView from './pages/TicketView'
 import AdminDashboard from './pages/AdminDashboard'
 import Profile from './pages/Profile'
 import Login from './pages/Auth/Login'
@@ -38,6 +39,7 @@ function App() {
         <Route path="/payment" element={<Payment />} />
         <Route path="/confirmation" element={<Confirmation />} />
         <Route path="/my-bookings" element={<MyBookings />} />
+        <Route path="/ticket/:bookingId" element={<TicketView />} />
         <Route path="/profile" element={<Profile />} />
 
         {/* Admin Only Routes */}

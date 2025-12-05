@@ -4,10 +4,19 @@ dotenv.config();
 import Razorpay from "razorpay";
 import crypto from "crypto";
 
-const razor = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET
-});
+const hasRazorpayConfig =
+  Boolean(process.env.RAZORPAY_KEY_ID) &&
+  Boolean(process.env.RAZORPAY_KEY_SECRET);
+
+const shouldMockRazorpay =
+  process.env.RAZORPAY_MOCK === "true" || !hasRazorpayConfig;
+
+const razor = hasRazorpayConfig
+  ? new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET
+    })
+  : null;
 
 
 import Wallet from '../models/Wallet.js';
@@ -57,15 +66,38 @@ export const createWalletOrder = async (req, res) => {
       });
     }
 
-    const order = await razor.orders.create({
-      amount: amount * 100, // convert to paise
-      currency: "INR",
-      receipt: `wallet_${Date.now()}`
-    });
+    let order;
+
+    if (!razor) {
+      // Mock order for local/dev environments without Razorpay config
+      order = {
+        id: `order_mock_${Date.now()}`,
+        amount: Math.round(amount * 100),
+        currency: "INR",
+        receipt: `wallet_mock_${Date.now()}`
+      };
+    } else {
+      order = await razor.orders.create({
+        amount: Math.round(amount * 100), // convert to paise
+        currency: "INR",
+        receipt: `wallet_${Date.now()}`,
+        notes: {
+          user_id: req.user._id.toString(),
+          type: 'wallet_recharge'
+        }
+      });
+    }
 
     res.json({
       success: true,
-      order
+      data: {
+        order: {
+          id: order.id,
+          amount: order.amount,
+          currency: order.currency,
+          receipt: order.receipt
+        }
+      }
     });
 
   } catch (error) {
@@ -459,6 +491,9 @@ export const getWalletStats = async (req, res) => {
 
 // Verify Razorpay payment & add money to wallet
 export const verifyWalletPayment = async (req, res) => {
+  const session = await Wallet.startSession();
+  session.startTransaction();
+
   try {
     const {
       razorpay_order_id,
@@ -467,49 +502,149 @@ export const verifyWalletPayment = async (req, res) => {
       amount
     } = req.body;
 
-    const body = razorpay_order_id + "|" + razorpay_payment_id;
+    console.log('Verify Wallet Payment - Request body:', {
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature: razorpay_signature ? 'present' : 'missing',
+      amount,
+      shouldMockRazorpay
+    });
 
-    const expectedSignature = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-      .update(body.toString())
-      .digest("hex");
-
-    if (expectedSignature !== razorpay_signature) {
-      return res.status(400).json({ success: false, message: "Invalid payment signature" });
+    if (!razorpay_order_id || !razorpay_payment_id || !amount) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: "Missing required payment verification data"
+      });
     }
 
-    // Find wallet
-    let wallet = await Wallet.findOne({ user_id: req.user._id });
+    // Parse and validate amount
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: "Invalid amount"
+      });
+    }
+
+    // Verify signature only if not in mock mode
+    if (!shouldMockRazorpay) {
+      if (!razorpay_signature) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({
+          success: false,
+          message: "Missing payment signature"
+        });
+      }
+
+      const body = razorpay_order_id + "|" + razorpay_payment_id;
+      const expectedSignature = crypto
+        .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+        .update(body.toString())
+        .digest("hex");
+
+      console.log('Signature verification:', {
+        expected: expectedSignature,
+        received: razorpay_signature,
+        match: expectedSignature === razorpay_signature
+      });
+
+      if (expectedSignature !== razorpay_signature) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({
+          success: false,
+          message: "Invalid payment signature"
+        });
+      }
+    } else {
+      console.warn("⚠️  Skipping Razorpay signature verification (mock mode).");
+    }
+
+    // Check if this payment was already processed (prevent duplicate credits)
+    const existingTx = await WalletTransaction.findOne({
+      gateway_transaction_id: razorpay_payment_id,
+      transaction_type: 'credit'
+    }).session(session);
+
+    if (existingTx) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: "This payment has already been processed"
+      });
+    }
+
+    // Find or create wallet
+    let wallet = await Wallet.findOne({ user_id: req.user._id }).session(session);
     if (!wallet) {
-      wallet = new Wallet({ user_id: req.user._id, balance: 0 });
+      wallet = new Wallet({
+        user_id: req.user._id,
+        balance: 0,
+        currency: 'INR'
+      });
+      await wallet.save({ session });
     }
 
     // Add funds
-    await wallet.addFunds(amount);
+    await wallet.addFunds(parsedAmount);
+    await wallet.save({ session });
 
-    // Transaction log
-    const tx = await WalletTransaction.create({
+    // Create transaction
+    const tx = new WalletTransaction({
       wallet_id: wallet._id,
       transaction_type: "credit",
-      amount,
+      amount: parsedAmount,
       description: "Wallet top-up via Razorpay",
       status: "completed",
       balance_after: wallet.balance,
       gateway_transaction_id: razorpay_payment_id
     });
 
+    await tx.save({ session });
+
+    // Create notification
+    await Notification.createNotification(req.user._id, {
+      title: 'Wallet Recharged',
+      message: `Your wallet has been recharged with ₹${parsedAmount}. New balance: ₹${wallet.balance}`,
+      type: 'payment',
+      icon: 'wallet',
+      is_important: true
+    });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    console.log('Wallet verification successful:', {
+      amount: parsedAmount,
+      new_balance: wallet.balance,
+      transaction_id: tx._id
+    });
+
     res.json({
       success: true,
       message: "Wallet updated successfully",
-      balance: wallet.balance,
-      transaction: tx
+      data: {
+        wallet,
+        transaction: tx,
+        balance: wallet.balance
+      }
     });
 
   } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+
     console.error("Verify Wallet Payment Error:", error);
-    res.status(200).json({
+    res.status(500).json({
       success: false,
-      message: "Verification failed"
+      message: "Verification failed",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };

@@ -4,7 +4,9 @@ import {
   addFunds,
   getWalletTransactions,
   transferFunds,
-  getWalletStats
+  getWalletStats,
+  createWalletOrder,
+  verifyWalletPayment
 } from '../controllers/walletController.js';
 import auth from '../middleware/auth.js';
 
@@ -18,5 +20,7 @@ router.post('/add-funds', addFunds);
 router.get('/transactions', getWalletTransactions);
 router.post('/transfer', transferFunds);
 router.get('/stats', getWalletStats);
+router.post("/create-order", createWalletOrder);
+router.post("/verify-payment", verifyWalletPayment);
 
 export default router;
