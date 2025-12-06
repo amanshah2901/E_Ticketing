@@ -14,7 +14,30 @@ const eventSchema = new mongoose.Schema({
   },
   category: {
     type: String,
-    enum: ['concert', 'sports', 'theater', 'comedy', 'festival', 'conference', 'workshop', 'exhibition', 'other'],
+    enum: [
+      // original ones
+      'concert',
+      'sports',
+      'theater',
+      'comedy',
+      'festival',
+      'conference',
+      'workshop',
+      'exhibition',
+      'other',
+
+      // added to match seed data & common event types
+      'music',
+      'food',
+      'wellness',
+      'art',
+      'fashion',
+      'dance',
+      'literature',
+      'gaming',
+      'entertainment',
+      'theatre'   // UK spelling, often used in sample data
+    ],
     required: [true, 'Category is required']
   },
   venue: {
@@ -74,17 +97,34 @@ const eventSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['upcoming', 'sold_out', 'cancelled', 'completed', 'postponed'],
+    enum: [
+      'upcoming',
+      'sold_out',
+      'cancelled',
+      'completed',
+      'postponed',
+      // extra safe options in case seed or future code uses them
+      'active',
+      'ongoing'
+    ],
     default: 'upcoming'
   },
   event_type: {
     type: String,
-    enum: ['indoor', 'outdoor', 'virtual', 'hybrid'],
+    enum: [
+      'indoor',
+      'outdoor',
+      'virtual',
+      'hybrid',
+      // extra aliases that seed data or UI might use
+      'online',
+      'offline'
+    ],
     default: 'indoor'
   },
   age_restriction: {
     type: String,
-    enum: ['all', '18+', '21+', '16+'],
+    enum: ['all', '18+', '21+', '16+', 'All Ages'],
     default: 'all'
   },
   tags: [{

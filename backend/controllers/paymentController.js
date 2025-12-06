@@ -140,6 +140,7 @@ export const verifyRazorpayPayment = async (req, res) => {
       }
     } else {
       console.warn('⚠️  Skipping Razorpay signature verification (mock mode).');
+    }
 
     if (isAuthentic) {
       // Payment is authentic
@@ -171,6 +172,14 @@ export const verifyRazorpayPayment = async (req, res) => {
 export const getPaymentDetails = async (req, res) => {
   try {
     const { paymentId } = req.params;
+
+    const razorpay = getRazorpay();
+    if (!razorpay) {
+      return res.status(500).json({
+        success: false,
+        message: 'Razorpay is not configured'
+      });
+    }
 
     const payment = await razorpay.payments.fetch(paymentId);
 
@@ -266,6 +275,14 @@ export const initiateRefund = async (req, res) => {
     const { paymentId } = req.params;
     const { amount, speed = 'normal', notes } = req.body;
 
+    const razorpay = getRazorpay();
+    if (!razorpay) {
+      return res.status(500).json({
+        success: false,
+        message: 'Razorpay is not configured'
+      });
+    }
+
     // First, get payment details from Razorpay
     const payment = await razorpay.payments.fetch(paymentId);
 
@@ -329,6 +346,14 @@ export const initiateRefund = async (req, res) => {
 export const getRefundDetails = async (req, res) => {
   try {
     const { refundId } = req.params;
+
+    const razorpay = getRazorpay();
+    if (!razorpay) {
+      return res.status(500).json({
+        success: false,
+        message: 'Razorpay is not configured'
+      });
+    }
 
     const refund = await razorpay.refunds.fetch(refundId);
 

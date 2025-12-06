@@ -80,7 +80,16 @@ const tourSchema = new mongoose.Schema({
   },
   difficulty_level: {
     type: String,
-    enum: ['easy', 'moderate', 'challenging', 'difficult'],
+    enum: [
+      'easy',
+      'moderate',
+      'challenging',
+      'difficult',
+      // extra safe values for seed / future
+      'beginner',
+      'intermediate',
+      'advanced'
+    ],
     default: 'moderate'
   },
   tour_operator: {
@@ -95,17 +104,61 @@ const tourSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['available', 'filling_fast', 'sold_out', 'cancelled', 'completed'],
+    enum: [
+      'available',
+      'filling_fast',
+      'sold_out',
+      'cancelled',
+      'completed',
+      // extra safe
+      'upcoming',
+      'ongoing'
+    ],
     default: 'available'
   },
   tour_type: {
     type: String,
-    enum: ['adventure', 'cultural', 'religious', 'beach', 'mountain', 'wildlife', 'city'],
+    enum: [
+      // original
+      'adventure',
+      'cultural',
+      'religious',
+      'beach',
+      'mountain',
+      'wildlife',
+      'city',
+      // added to match seed data and common types
+      'leisure',
+      'family',
+      'romantic',
+      'heritage',
+      'pilgrimage',
+      'spiritual',
+      'weekend',
+      'honeymoon',
+      'roadtrip',
+      'luxury',
+      'budget',
+      'eco',
+      'other'
+    ],
     default: 'cultural'
   },
   accommodation: {
     type: String,
-    enum: ['hotel', 'resort', 'camping', 'homestay', 'luxury'],
+    enum: [
+      'hotel',
+      'resort',
+      'camping',
+      'homestay',
+      'luxury',
+      // extra common ones
+      'hostel',
+      'villa',
+      'guesthouse',
+      'lodges',
+      'other'
+    ],
     default: 'hotel'
   },
   transport: {
