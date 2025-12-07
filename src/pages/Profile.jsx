@@ -88,6 +88,8 @@ const Profile = () => {
         },
         handler: async function (response) {
           try {
+            console.log("Razorpay payment response:", response);
+            
             // 4️⃣ After payment, verify on backend
             const result = await walletAPI.verifyWalletPayment({
               razorpay_payment_id: response.razorpay_payment_id,
@@ -96,17 +98,21 @@ const Profile = () => {
               amount
             });
 
-            if (result.success) {
+            console.log("Verification result:", result);
+
+            if (result && result.success) {
               alert("Wallet recharge successful! Your balance has been updated.");
               setAddFundsAmount("");
               // Refresh wallet data
               window.location.reload();
             } else {
-              alert(result.message || "Payment verification failed. Please contact support.");
+              const errorMessage = result?.message || result?.error || "Payment verification failed. Please contact support.";
+              alert(`Verification failed: ${errorMessage}${response.razorpay_payment_id ? ` Payment ID: ${response.razorpay_payment_id}` : ""}`);
             }
           } catch (error) {
             console.error("Payment verification error:", error);
-            alert("Payment verification failed. Please contact support with payment ID: " + response.razorpay_payment_id);
+            const errorMessage = error?.message || error?.response?.data?.message || "Payment verification failed. Please contact support.";
+            alert(`Verification failed: ${errorMessage}${response.razorpay_payment_id ? ` Payment ID: ${response.razorpay_payment_id}` : ""}`);
           }
         },
         modal: {

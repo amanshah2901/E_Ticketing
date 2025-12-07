@@ -268,15 +268,37 @@ const TicketView = () => {
 
                 {/* Payment Info */}
                 <div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Total Amount</span>
-                    <span className="text-2xl font-bold text-green-600">
-                      {formatCurrency(booking.total_amount)}
-                    </span>
+                  <h3 className="font-semibold text-lg mb-4">Payment Details</h3>
+                  <div className="space-y-2 text-sm">
+                    {booking.subtotal !== undefined && booking.subtotal > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Subtotal</span>
+                        <span className="font-medium">{formatCurrency(booking.subtotal)}</span>
+                      </div>
+                    )}
+                    {booking.booking_fee !== undefined && booking.booking_fee > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Booking Fee (5%)</span>
+                        <span className="font-medium">{formatCurrency(booking.booking_fee)}</span>
+                      </div>
+                    )}
+                    {booking.tax !== undefined && booking.tax > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">GST (5%)</span>
+                        <span className="font-medium">{formatCurrency(booking.tax)}</span>
+                      </div>
+                    )}
+                    <Separator />
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-900 font-semibold">Total Amount</span>
+                      <span className="text-2xl font-bold text-green-600">
+                        {formatCurrency(booking.total_amount)}
+                      </span>
+                    </div>
                   </div>
-                  {booking.payment_details && (
-                    <div className="mt-2 text-sm text-gray-500">
-                      Paid via {booking.payment_details.payment_method || 'N/A'}
+                  {booking.payment_method && (
+                    <div className="mt-3 text-sm text-gray-500">
+                      Paid via {booking.payment_method.toUpperCase()}
                     </div>
                   )}
                 </div>

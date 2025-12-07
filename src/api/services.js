@@ -62,6 +62,12 @@ export const moviesAPI = {
   getShowSeats: (showId) =>
     api.get(`/movies/show/${showId}/seats`).then(res => res.data.data),
 
+  lockSeats: (showId, seatNumbers) =>
+    api.post(`/movies/show/${showId}/seats/lock`, { seatNumbers }).then(res => res.data),
+
+  unlockSeats: (showId, seatNumbers) =>
+    api.post(`/movies/show/${showId}/seats/unlock`, { seatNumbers }).then(res => res.data),
+
   // Import latest movies from OMDB
   importLatestMovies: (options = {}) =>
     api.post('/movies/api/import-latest', options).then(res => res.data)
@@ -84,6 +90,36 @@ export const busesAPI = {
   
   searchBuses: (params) =>
     api.get('/buses/search', { params }).then(res => res.data.data)
+}
+
+// Trains API
+export const trainsAPI = {
+  getTrains: (params = {}) =>
+    api.get('/trains', { params }).then(res => res.data.data.trains || res.data.data),
+  
+  getTrainById: (id) =>
+    api.get(`/trains/${id}`).then(res => res.data.data),
+  
+  getPopularRoutes: () =>
+    api.get('/trains/popular-routes').then(res => res.data.data),
+  
+  searchTrains: (params) =>
+    api.get('/trains/search', { params }).then(res => res.data.data)
+}
+
+// Flights API
+export const flightsAPI = {
+  getFlights: (params = {}) =>
+    api.get('/flights', { params }).then(res => res.data.data.flights || res.data.data),
+  
+  getFlightById: (id) =>
+    api.get(`/flights/${id}`).then(res => res.data.data),
+  
+  getPopularRoutes: () =>
+    api.get('/flights/popular-routes').then(res => res.data.data),
+  
+  searchFlights: (params) =>
+    api.get('/flights/search', { params }).then(res => res.data.data)
 }
 
 // Events API
@@ -196,10 +232,37 @@ export const walletAPI = {
       });
   },
 
-  // No change needed here
+  // Verify wallet payment with better error handling
   verifyWalletPayment(data) {
-    return api.post('/wallet/verify-payment', data).then(res => res.data);
+    return api.post('/wallet/verify-payment', data)
+      .then(res => {
+        // Handle both { success: true, data: {...} } and { success: true, ... } formats
+        if (res.data.success) {
+          return res.data;
+        }
+        return res.data;
+      })
+      .catch(error => {
+        // Extract error message from response
+        const errorMessage = error?.response?.data?.message || error?.message || "Payment verification failed";
+        throw new Error(errorMessage);
+      });
   },
+  
+  searchTransport: (params) =>
+    api.get('/search/transport', { params })
+      .then(res => {
+        // Handle response structure: { success: true, data: { buses: [], trains: [], flights: [] } }
+        if (res.data.success && res.data.data) {
+          return res.data.data;
+        }
+        // Fallback if data is directly in response
+        return res.data.data || res.data || { buses: [], trains: [], flights: [] };
+      })
+      .catch(error => {
+        console.error('Transport search error:', error);
+        return { buses: [], trains: [], flights: [] };
+      })
 };
 
 
@@ -234,5 +297,8 @@ moviesAPI.importLatestMovies = (options = {}) =>
 // Unified Search API
 export const searchAPI = {
   unifiedSearch: (query) =>
-    api.get('/search', { params: { query } }).then(res => res.data.data)
+    api.get('/search', { params: { query } }).then(res => res.data.data),
+  
+  searchTransport: (params) =>
+    api.get('/search/transport', { params }).then(res => res.data.data)
 }

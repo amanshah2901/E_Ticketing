@@ -143,12 +143,7 @@ const MyBookings = () => {
             Booked on {formatDate(booking.createdAt)}
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" asChild>
-              <Link to={`/bookings/${booking._id}`}>
-                <Eye className="w-4 h-4 mr-1" />
-                View
-              </Link>
-            </Button>
+            
             
             {booking.booking_status === 'confirmed' && booking.canBeCancelled && (
               <Button 
@@ -345,11 +340,12 @@ const MyBookings = () => {
                           </div>
                         </div>
                       </div>
-                      <Button variant="outline" size="sm" asChild>
-                        <Link to={`/bookings/${booking._id}`}>
-                          View Details
-                        </Link>
-                      </Button>
+                        <Button variant="default" size="sm" asChild>
+                          <Link to={`/ticket/${booking._id}`}>
+                            <Download className="w-4 h-4 mr-1" />
+                            View Ticket
+                          </Link>
+                        </Button>
                     </div>
                   ))}
               </div>

@@ -342,8 +342,10 @@ const MovieBooking = () => {
     return mockSeats
   }
 
-  const handleSeatSelect = (selected) => {
-    setSelectedSeats(selected)
+  const handleSeatSelect = async (selected) => {
+    const previousSeats = selectedSeats;
+    setSelectedSeats(selected);
+    
     // Auto adjust viewer details length to match selected seats
     if (selected.length > viewerDetails.length) {
       const newDetails = [...viewerDetails]
@@ -351,6 +353,33 @@ const MovieBooking = () => {
       setviewerDetails(newDetails)
     } else if (selected.length < viewerDetails.length) {
       setviewerDetails(viewerDetails.slice(0, selected.length))
+    }
+
+    // Lock/unlock seats
+    if (selectedShowtime?.show_id && selectedShowtime.show_id !== 'legacy' && !selectedShowtime.show_id.startsWith('legacy_')) {
+      try {
+        // Unlock previously selected seats that are no longer selected
+        const seatsToUnlock = previousSeats.filter(seat => !selected.includes(seat));
+        if (seatsToUnlock.length > 0) {
+          await moviesAPI.unlockSeats(selectedShowtime.show_id, seatsToUnlock);
+        }
+
+        // Lock newly selected seats
+        const seatsToLock = selected.filter(seat => !previousSeats.includes(seat));
+        if (seatsToLock.length > 0) {
+          await moviesAPI.lockSeats(selectedShowtime.show_id, seatsToLock);
+          // Refresh seats to show locked status
+          await fetchSeatsForShowtime(selectedShowtime.show_id);
+        }
+      } catch (error) {
+        console.error('Error locking/unlocking seats:', error);
+        // Don't block the UI if locking fails, but show a warning
+        if (error.response?.status === 400) {
+          alert(error.response?.data?.message || 'Some seats may have been selected by another user. Please refresh and try again.');
+          // Refresh seats
+          await fetchSeatsForShowtime(selectedShowtime.show_id);
+        }
+      }
     }
   }
 
@@ -429,6 +458,7 @@ const MovieBooking = () => {
 
     if (step === 3) {
       // prepare booking payload and navigate to payment
+      // Note: Seats will remain locked until booking is completed or cancelled
       const bookingData = {
         booking_type: 'movie',
         item_id: movieId,
@@ -453,9 +483,26 @@ const MovieBooking = () => {
     setStep(s => s + 1)
   }
 
-  const handleBack = () => {
+  const handleBack = async () => {
+    // Unlock seats if going back from step 2 or 3
+    if ((step === 2 || step === 3) && selectedSeats.length > 0 && selectedShowtime?.show_id && selectedShowtime.show_id !== 'legacy' && !selectedShowtime.show_id.startsWith('legacy_')) {
+      try {
+        await moviesAPI.unlockSeats(selectedShowtime.show_id, selectedSeats);
+      } catch (error) {
+        console.error('Error unlocking seats:', error);
+      }
+    }
     setStep(s => Math.max(1, s - 1))
   }
+
+  // Cleanup: unlock seats when component unmounts or user navigates away
+  useEffect(() => {
+    return () => {
+      if (selectedSeats.length > 0 && selectedShowtime?.show_id && selectedShowtime.show_id !== 'legacy' && !selectedShowtime.show_id.startsWith('legacy_')) {
+        moviesAPI.unlockSeats(selectedShowtime.show_id, selectedSeats).catch(err => console.error('Cleanup unlock error:', err));
+      }
+    };
+  }, [selectedSeats, selectedShowtime]);
 
   if (loading) {
     return (

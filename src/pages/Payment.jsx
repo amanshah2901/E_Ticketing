@@ -135,6 +135,10 @@ const Payment = () => {
         passenger_details: bookingData.passenger_details || [],
         special_requirements: bookingData.special_requirements || "",
         payment_method: "wallet",
+        // Include class_type for train and flight bookings
+        ...(bookingData.class_type && { class_type: bookingData.class_type }),
+        // Include showtime_id for movie bookings
+        ...(bookingData.showtime_id && { showtime_id: bookingData.showtime_id }),
       };
 
       console.log("Creating wallet booking with payload:", bookingPayload);
@@ -174,7 +178,7 @@ const Payment = () => {
       amount: order.amount,
       currency: order.currency,
       name: "TicketHub",
-      description: bookingData.item.title,
+      description: bookingData.item?.title || bookingData.item?.train_name || bookingData.item?.airline || "Booking",
       order_id: order.id,
 
       handler: async (response) => {
@@ -193,6 +197,10 @@ const Payment = () => {
             payment_method: "razorpay",
             razorpay_payment_id: response.razorpay_payment_id,
             razorpay_order_id: response.razorpay_order_id,
+            // Include class_type for train and flight bookings
+            ...(bookingData.class_type && { class_type: bookingData.class_type }),
+            // Include showtime_id for movie bookings
+            ...(bookingData.showtime_id && { showtime_id: bookingData.showtime_id }),
           };
 
           console.log("Creating booking with payload:", bookingPayload);

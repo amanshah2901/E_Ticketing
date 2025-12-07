@@ -964,6 +964,9 @@ export const getShowSeats = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Show instance not found' });
     }
 
+    // Clean up expired locks before fetching seats
+    await Seat.cleanupExpiredLocks();
+
     const seats = await Seat.find({
       item_type: 'show',
       item_id: show._id
@@ -1001,6 +1004,141 @@ export const getShowSeats = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error fetching show seats'
+    });
+  }
+};
+
+/**
+ * Lock seats for a show (5 minutes)
+ * POST /movies/show/:showId/seats/lock
+ */
+export const lockSeats = async (req, res) => {
+  try {
+    const { showId } = req.params;
+    const { seatNumbers } = req.body;
+    const userId = req.user?._id?.toString() || req.user?.id || 'anonymous';
+
+    if (!Array.isArray(seatNumbers) || seatNumbers.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'seatNumbers array is required'
+      });
+    }
+
+    const show = await ShowInstance.findById(showId);
+    if (!show) {
+      return res.status(404).json({ success: false, message: 'Show instance not found' });
+    }
+
+    // Find seats
+    const seats = await Seat.find({
+      item_type: 'show',
+      item_id: show._id,
+      seat_number: { $in: seatNumbers }
+    });
+
+    if (seats.length !== seatNumbers.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'Some seats not found'
+      });
+    }
+
+    // Check if seats are available and not locked by someone else
+    const now = new Date();
+    for (const seat of seats) {
+      if (seat.status === 'booked') {
+        return res.status(400).json({
+          success: false,
+          message: `Seat ${seat.seat_number} is already booked`
+        });
+      }
+      if (seat.is_locked && seat.locked_by !== userId && seat.locked_until > now) {
+        return res.status(400).json({
+          success: false,
+          message: `Seat ${seat.seat_number} is locked by another user`
+        });
+      }
+    }
+
+    // Lock seats for 5 minutes
+    const lockedUntil = new Date(Date.now() + 5 * 60 * 1000);
+    await Seat.updateMany(
+      {
+        item_type: 'show',
+        item_id: show._id,
+        seat_number: { $in: seatNumbers }
+      },
+      {
+        $set: {
+          status: 'selected',
+          locked_by: userId,
+          locked_until: lockedUntil
+        }
+      }
+    );
+
+    res.json({
+      success: true,
+      message: 'Seats locked successfully',
+      data: {
+        locked_seats: seatNumbers,
+        locked_until: lockedUntil
+      }
+    });
+  } catch (error) {
+    console.error('Lock seats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error locking seats'
+    });
+  }
+};
+
+/**
+ * Unlock seats for a show
+ * POST /movies/show/:showId/seats/unlock
+ */
+export const unlockSeats = async (req, res) => {
+  try {
+    const { showId } = req.params;
+    const { seatNumbers } = req.body;
+    const userId = req.user?._id?.toString() || req.user?.id || 'anonymous';
+
+    if (!Array.isArray(seatNumbers) || seatNumbers.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'seatNumbers array is required'
+      });
+    }
+
+    // Unlock seats (only if locked by this user)
+    await Seat.updateMany(
+      {
+        item_type: 'show',
+        item_id: showId,
+        seat_number: { $in: seatNumbers },
+        locked_by: userId,
+        status: 'selected'
+      },
+      {
+        $set: {
+          status: 'available',
+          locked_by: null,
+          locked_until: null
+        }
+      }
+    );
+
+    res.json({
+      success: true,
+      message: 'Seats unlocked successfully'
+    });
+  } catch (error) {
+    console.error('Unlock seats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error unlocking seats'
     });
   }
 };

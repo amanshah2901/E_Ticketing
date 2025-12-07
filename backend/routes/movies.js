@@ -18,7 +18,9 @@ import {
 
   // BookMyShow system
   getShowSeats,
-  createShowInstancesForMovie
+  createShowInstancesForMovie,
+  lockSeats,
+  unlockSeats
 } from '../controllers/movieController.js'
 
 import auth from '../middleware/auth.js'
@@ -40,6 +42,10 @@ router.post('/api/import-latest', auth, admin, importLatestMovies) // Admin only
 
 // Get seats for a specific show instance
 router.get('/show/:showId/seats', getShowSeats)
+
+// Lock/unlock seats (requires auth)
+router.post('/show/:showId/seats/lock', auth, lockSeats)
+router.post('/show/:showId/seats/unlock', auth, unlockSeats)
 
 // Admin: create missing show instances from movie.showtimes
 router.post('/:id/create-show-instances', auth, admin, createShowInstancesForMovie)

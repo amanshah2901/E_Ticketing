@@ -5,6 +5,8 @@ import { dirname, join } from 'path';
 import User from '../models/User.js';
 import Movie from '../models/Movie.js';
 import Bus from '../models/Bus.js';
+import Train from '../models/Train.js';
+import Flight from '../models/Flight.js';
 import Event from '../models/Event.js';
 import Tour from '../models/Tour.js';
 import Seat from '../models/Seat.js';
@@ -672,7 +674,7 @@ const seedData = async () => {
     ];
 
     const buses = [];
-    for (let i = 0; i < 22; i++) {
+    for (let i = 0; i < 100; i++) {
       const route = busRoutes[i % busRoutes.length];
       const operator = operators[Math.floor(Math.random() * operators.length)];
       const busTypes = ['ac_sleeper', 'ac_seater', 'non_ac_sleeper', 'non_ac_seater'];
@@ -690,6 +692,18 @@ const seedData = async () => {
       
       const totalSeats = busType.includes('sleeper') ? [40, 42, 44][Math.floor(Math.random() * 3)] : [36, 38, 40][Math.floor(Math.random() * 3)];
       const availableSeats = Math.floor(totalSeats * (0.6 + Math.random() * 0.3));
+      
+      // Bus images from Unsplash (coach bus images)
+      const busImages = [
+        'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=800',
+        'https://images.unsplash.com/photo-1501594907352-04cda38ebc29?w=800',
+        'https://images.unsplash.com/photo-1519608487953-e999c86e7455?w=800',
+        'https://images.unsplash.com/photo-1557223562-6c77ef16210f?w=800',
+        'https://images.unsplash.com/photo-1563729784474-d77dbb933a9e?w=800',
+        'https://images.unsplash.com/photo-1570125909232-eb263c188f7e?w=800',
+        'https://images.unsplash.com/photo-1557223562-6c77ef16210f?w=800',
+        'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=800'
+      ];
       
       const bus = await Bus.create({
         operator,
@@ -710,6 +724,7 @@ const seedData = async () => {
         boarding_point: `${route.from} Bus Stand`,
         dropping_point: `${route.to} Bus Stand`,
         bus_layout: busType.includes('sleeper') ? 'sleeper' : '2x2',
+        image_url: busImages[Math.floor(Math.random() * busImages.length)],
         ratings: {
           average: 3.8 + Math.random() * 0.5,
           count: Math.floor(Math.random() * 200 + 50)
@@ -897,6 +912,215 @@ const seedData = async () => {
     }
     console.log(`✅ Created ${tours.length} tours`);
 
+    // ============================================
+    // TRAINS (20+)
+    // ============================================
+    console.log('🚂 Creating trains...');
+    
+    const trainRoutes = [
+      { from: 'Mumbai', to: 'Delhi', fromCode: 'CSTM', toCode: 'NDLS', duration: '16 hours', price: 1500 },
+      { from: 'Mumbai', to: 'Bangalore', fromCode: 'CSTM', toCode: 'SBC', duration: '24 hours', price: 1200 },
+      { from: 'Mumbai', to: 'Chennai', fromCode: 'CSTM', toCode: 'MAS', duration: '26 hours', price: 1400 },
+      { from: 'Delhi', to: 'Mumbai', fromCode: 'NDLS', toCode: 'CSTM', duration: '16 hours', price: 1500 },
+      { from: 'Delhi', to: 'Kolkata', fromCode: 'NDLS', toCode: 'HWH', duration: '18 hours', price: 1300 },
+      { from: 'Delhi', to: 'Bangalore', fromCode: 'NDLS', toCode: 'SBC', duration: '32 hours', price: 1800 },
+      { from: 'Delhi', to: 'Chennai', fromCode: 'NDLS', toCode: 'MAS', duration: '34 hours', price: 1900 },
+      { from: 'Delhi', to: 'Pune', fromCode: 'NDLS', toCode: 'PUNE', duration: '20 hours', price: 1200 },
+      { from: 'Bangalore', to: 'Chennai', fromCode: 'SBC', toCode: 'MAS', duration: '5 hours', price: 600 },
+      { from: 'Bangalore', to: 'Hyderabad', fromCode: 'SBC', toCode: 'HYB', duration: '10 hours', price: 800 },
+      { from: 'Bangalore', to: 'Mumbai', fromCode: 'SBC', toCode: 'CSTM', duration: '24 hours', price: 1200 },
+      { from: 'Chennai', to: 'Bangalore', fromCode: 'MAS', toCode: 'SBC', duration: '5 hours', price: 600 },
+      { from: 'Chennai', to: 'Coimbatore', fromCode: 'MAS', toCode: 'CBE', duration: '7 hours', price: 500 },
+      { from: 'Kolkata', to: 'Delhi', fromCode: 'HWH', toCode: 'NDLS', duration: '18 hours', price: 1300 },
+      { from: 'Kolkata', to: 'Mumbai', fromCode: 'HWH', toCode: 'CSTM', duration: '30 hours', price: 1600 },
+      { from: 'Pune', to: 'Mumbai', fromCode: 'PUNE', toCode: 'CSTM', duration: '3 hours', price: 300 },
+      { from: 'Pune', to: 'Delhi', fromCode: 'PUNE', toCode: 'NDLS', duration: '20 hours', price: 1200 },
+      { from: 'Hyderabad', to: 'Bangalore', fromCode: 'HYB', toCode: 'SBC', duration: '10 hours', price: 800 },
+      { from: 'Hyderabad', to: 'Chennai', fromCode: 'HYB', toCode: 'MAS', duration: '12 hours', price: 900 },
+      { from: 'Ahmedabad', to: 'Mumbai', fromCode: 'ADI', toCode: 'CSTM', duration: '8 hours', price: 700 },
+      { from: 'Jaipur', to: 'Delhi', fromCode: 'JP', toCode: 'NDLS', duration: '5 hours', price: 500 },
+      { from: 'Lucknow', to: 'Delhi', fromCode: 'LKO', toCode: 'NDLS', duration: '6 hours', price: 550 }
+    ];
+
+    const trainOperators = [
+      'Indian Railways', 'IRCTC', 'Railway Reservation', 'Train Booking'
+    ];
+
+    const trainTypes = ['express', 'superfast', 'mail', 'passenger', 'rajdhani', 'shatabdi', 'duronto', 'garib_rath'];
+    const trainClasses = [
+      { class_type: '1A', price: 3000, seats: 20 },
+      { class_type: '2A', price: 2000, seats: 40 },
+      { class_type: '3A', price: 1200, seats: 60 },
+      { class_type: 'SL', price: 600, seats: 80 }
+    ];
+
+    const trains = [];
+    for (let i = 0; i < 25; i++) {
+      const route = trainRoutes[i % trainRoutes.length];
+      const operator = trainOperators[Math.floor(Math.random() * trainOperators.length)];
+      const trainType = trainTypes[Math.floor(Math.random() * trainTypes.length)];
+      
+      const departureDate = new Date();
+      departureDate.setDate(departureDate.getDate() + Math.floor(Math.random() * 7) + 1);
+      
+      const departureHour = Math.floor(Math.random() * 12) + 6; // 6 AM to 6 PM
+      const departureTime = `${departureHour.toString().padStart(2, '0')}:${[0, 15, 30, 45][Math.floor(Math.random() * 4)].toString().padStart(2, '0')}`;
+      
+      const durationHours = parseInt(route.duration.split(' ')[0]);
+      const arrivalDate = new Date(departureDate);
+      arrivalDate.setHours(departureHour + durationHours);
+      const arrivalTime = `${((departureHour + durationHours) % 24).toString().padStart(2, '0')}:${[0, 15, 30, 45][Math.floor(Math.random() * 4)].toString().padStart(2, '0')}`;
+      
+      const trainNumber = `${Math.floor(Math.random() * 9000) + 1000}${String.fromCharCode(65 + Math.floor(Math.random() * 26))}`;
+      const trainName = `${route.from} ${route.to} ${trainType.charAt(0).toUpperCase() + trainType.slice(1)}`;
+      
+      const classes = trainClasses.map(cls => ({
+        class_type: cls.class_type,
+        total_seats: cls.seats,
+        available_seats: Math.floor(cls.seats * (0.5 + Math.random() * 0.4)),
+        price: cls.price + Math.floor(Math.random() * 500 - 250)
+      }));
+
+      const train = await Train.create({
+        train_number: trainNumber,
+        train_name: trainName,
+        operator,
+        train_type: trainType,
+        from_station: route.from,
+        to_station: route.to,
+        from_station_code: route.fromCode,
+        to_station_code: route.toCode,
+        departure_date: departureDate,
+        departure_time: departureTime,
+        arrival_date: arrivalDate,
+        arrival_time: arrivalTime,
+        duration: route.duration,
+        classes: classes,
+        amenities: ['WiFi', 'Food Service', 'Clean Toilets', 'Charging Points', 'Bedding'],
+        status: 'active',
+        image_url: [
+          'https://images.unsplash.com/photo-1553615738-334a5c9e5e0a?w=800',
+          'https://images.unsplash.com/photo-1581833971358-2c8b550f87b3?w=800',
+          'https://images.unsplash.com/photo-1519904981063-b0cf448d479e?w=800',
+          'https://images.unsplash.com/photo-1556388158-158ea5ccacbd?w=800',
+          'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=800',
+          'https://images.unsplash.com/photo-1501594907352-04cda38ebc29?w=800',
+          'https://images.unsplash.com/photo-1519608487953-e999c86e7455?w=800',
+          'https://images.unsplash.com/photo-1563729784474-d77dbb933a9e?w=800'
+        ][Math.floor(Math.random() * 8)],
+        ratings: {
+          average: 3.5 + Math.random() * 0.8,
+          count: Math.floor(Math.random() * 300 + 100)
+        }
+      });
+      
+      trains.push(train);
+    }
+    console.log(`✅ Created ${trains.length} trains`);
+
+    // ============================================
+    // FLIGHTS (20+)
+    // ============================================
+    console.log('✈️ Creating flights...');
+    
+    const flightRoutes = [
+      { from: 'Mumbai', to: 'Delhi', fromCode: 'BOM', toCode: 'DEL', duration: '2h 15m', price: 5000 },
+      { from: 'Mumbai', to: 'Bangalore', fromCode: 'BOM', toCode: 'BLR', duration: '1h 30m', price: 4000 },
+      { from: 'Mumbai', to: 'Chennai', fromCode: 'BOM', toCode: 'MAA', duration: '1h 45m', price: 4500 },
+      { from: 'Mumbai', to: 'Kolkata', fromCode: 'BOM', toCode: 'CCU', duration: '2h 30m', price: 5500 },
+      { from: 'Delhi', to: 'Mumbai', fromCode: 'DEL', toCode: 'BOM', duration: '2h 15m', price: 5000 },
+      { from: 'Delhi', to: 'Bangalore', fromCode: 'DEL', toCode: 'BLR', duration: '2h 45m', price: 6000 },
+      { from: 'Delhi', to: 'Chennai', fromCode: 'DEL', toCode: 'MAA', duration: '2h 30m', price: 5800 },
+      { from: 'Delhi', to: 'Kolkata', fromCode: 'DEL', toCode: 'CCU', duration: '2h 10m', price: 4800 },
+      { from: 'Delhi', to: 'Goa', fromCode: 'DEL', toCode: 'GOI', duration: '2h 20m', price: 5200 },
+      { from: 'Bangalore', to: 'Mumbai', fromCode: 'BLR', toCode: 'BOM', duration: '1h 30m', price: 4000 },
+      { from: 'Bangalore', to: 'Delhi', fromCode: 'BLR', toCode: 'DEL', duration: '2h 45m', price: 6000 },
+      { from: 'Bangalore', to: 'Chennai', fromCode: 'BLR', toCode: 'MAA', duration: '1h 10m', price: 3500 },
+      { from: 'Bangalore', to: 'Hyderabad', fromCode: 'BLR', toCode: 'HYD', duration: '1h 15m', price: 3800 },
+      { from: 'Chennai', to: 'Mumbai', fromCode: 'MAA', toCode: 'BOM', duration: '1h 45m', price: 4500 },
+      { from: 'Chennai', to: 'Delhi', fromCode: 'MAA', toCode: 'DEL', duration: '2h 30m', price: 5800 },
+      { from: 'Chennai', to: 'Bangalore', fromCode: 'MAA', toCode: 'BLR', duration: '1h 10m', price: 3500 },
+      { from: 'Kolkata', to: 'Mumbai', fromCode: 'CCU', toCode: 'BOM', duration: '2h 30m', price: 5500 },
+      { from: 'Kolkata', to: 'Delhi', fromCode: 'CCU', toCode: 'DEL', duration: '2h 10m', price: 4800 },
+      { from: 'Hyderabad', to: 'Mumbai', fromCode: 'HYD', toCode: 'BOM', duration: '1h 20m', price: 4200 },
+      { from: 'Hyderabad', to: 'Delhi', fromCode: 'HYD', toCode: 'DEL', duration: '2h 15m', price: 5200 },
+      { from: 'Goa', to: 'Mumbai', fromCode: 'GOI', toCode: 'BOM', duration: '1h 10m', price: 3500 },
+      { from: 'Goa', to: 'Delhi', fromCode: 'GOI', toCode: 'DEL', duration: '2h 20m', price: 5200 },
+      { from: 'Pune', to: 'Delhi', fromCode: 'PNQ', toCode: 'DEL', duration: '2h 5m', price: 4800 },
+      { from: 'Ahmedabad', to: 'Mumbai', fromCode: 'AMD', toCode: 'BOM', duration: '1h 15m', price: 3800 }
+    ];
+
+    const airlines = [
+      'IndiGo', 'Air India', 'SpiceJet', 'Vistara', 'GoAir', 'AirAsia India', 'Alliance Air'
+    ];
+
+    const flightClasses = [
+      { class_type: 'economy', price: 1, seats: 150 },
+      { class_type: 'premium_economy', price: 1.5, seats: 30 },
+      { class_type: 'business', price: 3, seats: 20 },
+      { class_type: 'first', price: 5, seats: 8 }
+    ];
+
+    const flights = [];
+    for (let i = 0; i < 100; i++) {
+      const route = flightRoutes[i % flightRoutes.length];
+      const airline = airlines[Math.floor(Math.random() * airlines.length)];
+      
+      const departureDate = new Date();
+      departureDate.setDate(departureDate.getDate() + Math.floor(Math.random() * 7) + 1);
+      
+      const departureHour = Math.floor(Math.random() * 18) + 6; // 6 AM to 11 PM
+      const departureMinute = [0, 15, 30, 45][Math.floor(Math.random() * 4)];
+      const departureTime = `${departureHour.toString().padStart(2, '0')}:${departureMinute.toString().padStart(2, '0')}`;
+      
+      const durationParts = route.duration.split(' ');
+      const durationHours = parseInt(durationParts[0]);
+      const durationMinutes = parseInt(durationParts[1]?.replace('m', '') || 0);
+      
+      const arrivalDate = new Date(departureDate);
+      arrivalDate.setHours(departureHour + durationHours);
+      arrivalDate.setMinutes(departureMinute + durationMinutes);
+      const arrivalTime = `${((departureHour + durationHours) % 24).toString().padStart(2, '0')}:${((departureMinute + durationMinutes) % 60).toString().padStart(2, '0')}`;
+      
+      const flightNumber = `${airline.substring(0, 2).toUpperCase()}${Math.floor(Math.random() * 9000) + 1000}`;
+      
+      const classes = flightClasses.map(cls => ({
+        class_type: cls.class_type,
+        total_seats: cls.seats,
+        available_seats: Math.floor(cls.seats * (0.4 + Math.random() * 0.5)),
+        price: Math.round(route.price * cls.price)
+      }));
+
+      const stops = Math.random() > 0.7 ? Math.floor(Math.random() * 2) + 1 : 0;
+
+      const flight = await Flight.create({
+        flight_number: flightNumber,
+        airline,
+        aircraft_type: ['Boeing 737', 'Airbus A320', 'Boeing 787', 'Airbus A321'][Math.floor(Math.random() * 4)],
+        from_airport: route.from,
+        to_airport: route.to,
+        from_airport_code: route.fromCode,
+        to_airport_code: route.toCode,
+        departure_date: departureDate,
+        departure_time: departureTime,
+        arrival_date: arrivalDate,
+        arrival_time: arrivalTime,
+        duration: route.duration,
+        classes: classes,
+        stops: stops,
+        amenities: ['In-flight Entertainment', 'Meals', 'WiFi', 'USB Charging', 'Legroom'],
+        status: 'active',
+        image_url: 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=800',
+        ratings: {
+          average: 3.8 + Math.random() * 0.7,
+          count: Math.floor(Math.random() * 500 + 200)
+        }
+      });
+      
+      flights.push(flight);
+    }
+    console.log(`✅ Created ${flights.length} flights`);
+
     console.log('\n✅ Database seeded successfully!');
     console.log('\n📋 Login Credentials:');
     console.log('   Admin: admin@tickethub.com / admin123');
@@ -904,6 +1128,8 @@ const seedData = async () => {
     console.log(`\n📊 Created:`);
     console.log(`   - ${movies.length} Movies (with dynamic showtimes)`);
     console.log(`   - ${buses.length} Buses`);
+    console.log(`   - ${trains.length} Trains`);
+    console.log(`   - ${flights.length} Flights`);
     console.log(`   - ${events.length} Events`);
     console.log(`   - ${tours.length} Tours`);
 

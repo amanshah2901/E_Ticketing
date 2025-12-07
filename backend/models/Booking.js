@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 const bookingSchema = new mongoose.Schema({
   booking_type: {
     type: String,
-    enum: ['movie', 'bus', 'event', 'tour'],
+    enum: ['movie', 'bus', 'event', 'tour', 'train', 'flight'],
     required: [true, 'Booking type is required']
   },
   item_id: {
@@ -62,6 +62,21 @@ const bookingSchema = new mongoose.Schema({
       trim: true
     }
   }],
+  subtotal: {
+    type: Number,
+    default: 0,
+    min: [0, 'Subtotal cannot be negative']
+  },
+  booking_fee: {
+    type: Number,
+    default: 0,
+    min: [0, 'Booking fee cannot be negative']
+  },
+  tax: {
+    type: Number,
+    default: 0,
+    min: [0, 'Tax cannot be negative']
+  },
   total_amount: {
     type: Number,
     required: [true, 'Total amount is required'],
@@ -113,6 +128,10 @@ const bookingSchema = new mongoose.Schema({
     type: String,
     trim: true,
     maxlength: [500, 'Special requirements cannot be more than 500 characters']
+  },
+  class_type: {
+    type: String,
+    trim: true
   },
   payment_method: {
     type: String,

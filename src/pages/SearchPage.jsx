@@ -18,6 +18,8 @@ import {
   Search,
   Film,
   Bus,
+  Train,
+  Plane,
   Music,
   Mountain,
   Star,
@@ -30,6 +32,8 @@ import {
 import {
   moviesAPI,
   busesAPI,
+  trainsAPI,
+  flightsAPI,
   eventsAPI,
   toursAPI,
   searchAPI,
@@ -59,18 +63,20 @@ const TabsControl = ({ active, setActive, totals }) => {
     { value: "all", label: "All" },
     { value: "movie", label: "Movies", icon: Film },
     { value: "bus", label: "Buses", icon: Bus },
+    { value: "train", label: "Trains", icon: Train },
+    { value: "flight", label: "Flights", icon: Plane },
     { value: "event", label: "Events", icon: Music },
     { value: "tour", label: "Tours", icon: Mountain },
   ];
 
   return (
     <div className="mb-8">
-      <div className="grid grid-cols-5 gap-2">
+      <div className="grid grid-cols-7 gap-2">
         {tabs.map((t) => {
           const Icon = t.icon;
           const count =
             t.value === "all"
-              ? (totals.movies + totals.buses + totals.events + totals.tours)
+              ? (totals.movies + totals.buses + totals.trains + totals.flights + totals.events + totals.tours)
               : totals[t.value + "s"] || 0;
 
           const isActive = active === t.value;
@@ -98,7 +104,10 @@ const TabsControl = ({ active, setActive, totals }) => {
 const ResultCard = ({ item, type, Icon }) => {
   const itemId = item?._id || item?.id || "";
   const price =
-    type === "tour" ? item.price_per_person : item.price || item.ticket_price || 0;
+    type === "tour" ? item.price_per_person :
+    type === "train" ? (item.classes?.[0]?.price || 0) :
+    type === "flight" ? (item.classes?.[0]?.price || 0) :
+    item.price || item.ticket_price || 0;
 
   return (
     <Card className="hover:shadow-lg transition-shadow duration-300">
@@ -106,8 +115,10 @@ const ResultCard = ({ item, type, Icon }) => {
         <div className="flex flex-col md:flex-row">
           <div className="md:w-48 h-48 md:h-auto">
             <img
-              src={item.poster_url || item.image_url || "/default-image.jpg"}
-              alt={item.title || item.name}
+              src={type === "bus" || type === "train" || type === "flight"
+                ? (item.image_url || (type === "bus" ? "/default-bus-image.jpg" : type === "train" ? "/default-train-image.jpg" : "/default-flight-image.jpg"))
+                : (item.poster_url || item.image_url || "/default-image.jpg")}
+              alt={item.title || item.name || item.operator || item.train_name || item.airline}
               className="w-full h-full object-cover"
             />
           </div>
@@ -116,7 +127,9 @@ const ResultCard = ({ item, type, Icon }) => {
             <div className="flex items-start justify-between mb-3">
               <div>
                 <h3 className="text-xl font-semibold mb-2">
-                  {item.title || item.name}
+                  {type === "train" ? `${item.train_name} (${item.train_number})` :
+                   type === "flight" ? `${item.airline} ${item.flight_number}` :
+                   item.title || item.name}
                 </h3>
 
                 <div className="flex items-center gap-2 mb-3">
@@ -164,6 +177,9 @@ const ResultCard = ({ item, type, Icon }) => {
               {type === "bus" && (
                 <>
                   <div className="flex items-center gap-2">
+                    <span className="font-semibold text-indigo-600">{item.operator || "Bus Operator"}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
                     <MapPin className="w-4 h-4" />
                     <span>
                       {item.from_city || item.from} → {item.to_city || item.to}
@@ -180,6 +196,68 @@ const ResultCard = ({ item, type, Icon }) => {
                     <span>
                       {item.departure_time} - {item.arrival_time}
                     </span>
+                  </div>
+                </>
+              )}
+
+              {type === "train" && (
+                <>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-indigo-600">{item.operator || "Indian Railways"}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <MapPin className="w-4 h-4" />
+                    <span>
+                      {item.from_station} ({item.from_station_code}) → {item.to_station} ({item.to_station_code})
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4" />
+                    <span>{formatDate(item.departure_date)}</span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4" />
+                    <span>
+                      {item.departure_time} - {item.arrival_time}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Users className="w-4 h-4" />
+                    <span>{item.classes?.[0]?.available_seats || 0} seats available</span>
+                  </div>
+                </>
+              )}
+
+              {type === "flight" && (
+                <>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-indigo-600">{item.airline}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <MapPin className="w-4 h-4" />
+                    <span>
+                      {item.from_airport} ({item.from_airport_code}) → {item.to_airport} ({item.to_airport_code})
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4" />
+                    <span>{formatDate(item.departure_date)}</span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4" />
+                    <span>
+                      {item.departure_time} - {item.arrival_time} • {item.duration}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Users className="w-4 h-4" />
+                    <span>{item.classes?.[0]?.available_seats || 0} seats available</span>
                   </div>
                 </>
               )}
@@ -277,14 +355,16 @@ const ResultsSection = ({ type, items, icon: Icon, title }) => {
 };
 
 const SearchPage = () => {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  // tabs: all, movie, bus, event, tour
+  // tabs: all, movie, bus, train, flight, event, tour
   const [activeTab, setActiveTab] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [results, setResults] = useState({
     movies: [],
     buses: [],
+    trains: [],
+    flights: [],
     events: [],
     tours: [],
   });
@@ -331,6 +411,8 @@ const SearchPage = () => {
             const newResults = {
               movies: tab === "all" || tab === "movie" ? (unifiedResults.movies || []) : [],
               buses: tab === "all" || tab === "bus" ? (unifiedResults.buses || []) : [],
+              trains: tab === "all" || tab === "train" ? (unifiedResults.trains || []) : [],
+              flights: tab === "all" || tab === "flight" ? (unifiedResults.flights || []) : [],
               events: tab === "all" || tab === "event" ? (unifiedResults.events || []) : [],
               tours: tab === "all" || tab === "tour" ? (unifiedResults.tours || []) : []
             };
@@ -369,6 +451,14 @@ const SearchPage = () => {
           reqs.push(busesAPI.getBuses(params));
           reqMap.push("buses");
         }
+        if (tab === "all" || tab === "train") {
+          reqs.push(trainsAPI.getTrains(params));
+          reqMap.push("trains");
+        }
+        if (tab === "all" || tab === "flight") {
+          reqs.push(flightsAPI.getFlights(params));
+          reqMap.push("flights");
+        }
         if (tab === "all" || tab === "event") {
           reqs.push(eventsAPI.getEvents(params));
           reqMap.push("events");
@@ -381,7 +471,7 @@ const SearchPage = () => {
         const settled = await Promise.allSettled(reqs);
 
         // Prepare new results starting from previous state to keep stability
-        const newResults = { movies: [], buses: [], events: [], tours: [] };
+        const newResults = { movies: [], buses: [], trains: [], flights: [], events: [], tours: [] };
 
         settled.forEach((s, idx) => {
           const key = reqMap[idx]; // 'movies' | 'buses' | ...
@@ -436,6 +526,8 @@ const SearchPage = () => {
   const totals = {
     movies: results.movies.length,
     buses: results.buses.length,
+    trains: results.trains.length,
+    flights: results.flights.length,
     events: results.events.length,
     tours: results.tours.length,
   };
@@ -475,7 +567,15 @@ const SearchPage = () => {
         </div>
 
         {/* Tabs control (custom to avoid onValueChange warning) */}
-        <TabsControl active={activeTab} setActive={(v) => { setActiveTab(v); performSearch(searchQuery, v); }} totals={totals} />
+        <TabsControl 
+          active={activeTab} 
+          setActive={(v) => { 
+            setActiveTab(v); 
+            setSearchParams({ type: v });
+            performSearch(searchQuery, v); 
+          }} 
+          totals={totals} 
+        />
 
         {/* RESULTS */}
         {loading ? (
@@ -494,6 +594,14 @@ const SearchPage = () => {
               <ResultsSection type="bus" items={results.buses} icon={Bus} title="Bus Routes" />
             )}
 
+            {(activeTab === "all" || activeTab === "train") && (
+              <ResultsSection type="train" items={results.trains} icon={Train} title="Train Routes" />
+            )}
+
+            {(activeTab === "all" || activeTab === "flight") && (
+              <ResultsSection type="flight" items={results.flights} icon={Plane} title="Flight Routes" />
+            )}
+
             {(activeTab === "all" || activeTab === "event") && (
               <ResultsSection type="event" items={results.events} icon={Music} title="Events" />
             )}
@@ -505,6 +613,8 @@ const SearchPage = () => {
             {/* no results */}
             {results.movies.length === 0 &&
               results.buses.length === 0 &&
+              results.trains.length === 0 &&
+              results.flights.length === 0 &&
               results.events.length === 0 &&
               results.tours.length === 0 && (
                 <div className="text-center py-12">

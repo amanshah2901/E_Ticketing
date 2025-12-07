@@ -3,8 +3,11 @@ import { Routes, Route } from 'react-router-dom'
 import Layout from './components/layout/Layout'
 import Home from './pages/Home'
 import SearchPage from './pages/SearchPage'
+import TransportSearch from './pages/TransportSearch'
 import MovieBooking from './pages/MovieBooking'
 import BusBooking from './pages/BusBooking'
+import TrainBooking from './pages/TrainBooking'
+import FlightBooking from './pages/FlightBooking'
 import EventBooking from './pages/EventBooking'
 import TourBooking from './pages/TourBooking'
 import Payment from './pages/Payment'
@@ -28,12 +31,15 @@ function App() {
         {/* Public Routes */}
         <Route path="/" element={<Home />} />
         <Route path="/search" element={<SearchPage />} />
+        <Route path="/transport-search" element={<TransportSearch />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
 
         {/* Protected Routes */}
         <Route path="/movie-booking" element={<MovieBooking />} />
         <Route path="/bus-booking" element={<BusBooking />} />
+        <Route path="/train-booking" element={<TrainBooking />} />
+        <Route path="/flight-booking" element={<FlightBooking />} />
         <Route path="/event-booking" element={<EventBooking />} />
         <Route path="/tour-booking" element={<TourBooking />} />
         <Route path="/payment" element={<Payment />} />

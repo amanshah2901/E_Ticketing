@@ -3,6 +3,8 @@
 import Booking from '../models/Booking.js';
 import Movie from '../models/Movie.js';
 import Bus from '../models/Bus.js';
+import Train from '../models/Train.js';
+import Flight from '../models/Flight.js';
 import Event from '../models/Event.js';
 import Tour from '../models/Tour.js';
 import Seat from '../models/Seat.js';
@@ -32,13 +34,15 @@ export const createBooking = async (req, res) => {
     const {
       booking_type,
       item_id,
+      showtime_id, // For movie bookings with show instances
       quantity,
       seats,
       passenger_details,
       special_requirements,
       payment_method,
       razorpay_payment_id,
-      razorpay_order_id
+      razorpay_order_id,
+      class_type
     } = req.body;
 
     const userId = req.user._id;
@@ -139,6 +143,50 @@ export const createBooking = async (req, res) => {
         break;
       }
 
+      case 'train': {
+        item = await Train.findById(item_id);
+        if (!item) return res.status(404).json({ success: false, message: 'Train not found' });
+
+        const { class_type } = req.body;
+        if (!class_type) {
+          return res.status(400).json({ success: false, message: 'Class type is required' });
+        }
+
+        if (!quantityToUse) quantityToUse = 1;
+        if (!item.hasAvailableSeats(class_type, quantityToUse)) {
+          return res.status(400).json({ success: false, message: 'Not enough seats available in selected class' });
+        }
+
+        itemTitle = `${item.train_name} (${item.train_number})`;
+        eventDate = item.departure_date;
+        eventTime = item.departure_time;
+        venueDetails = `${item.from_station} (${item.from_station_code}) → ${item.to_station} (${item.to_station_code})`;
+        totalAmount = item.getClassPrice(class_type) * quantityToUse;
+        break;
+      }
+
+      case 'flight': {
+        item = await Flight.findById(item_id);
+        if (!item) return res.status(404).json({ success: false, message: 'Flight not found' });
+
+        const { class_type } = req.body;
+        if (!class_type) {
+          return res.status(400).json({ success: false, message: 'Class type is required' });
+        }
+
+        if (!quantityToUse) quantityToUse = 1;
+        if (!item.hasAvailableSeats(class_type, quantityToUse)) {
+          return res.status(400).json({ success: false, message: 'Not enough seats available in selected class' });
+        }
+
+        itemTitle = `${item.airline} ${item.flight_number}`;
+        eventDate = item.departure_date;
+        eventTime = item.departure_time;
+        venueDetails = `${item.from_airport} (${item.from_airport_code}) → ${item.to_airport} (${item.to_airport_code})`;
+        totalAmount = item.getClassPrice(class_type) * quantityToUse;
+        break;
+      }
+
       default:
         return res.status(400).json({ success: false, message: 'Invalid booking type' });
     }
@@ -165,6 +213,9 @@ export const createBooking = async (req, res) => {
       quantity: quantityToUse,
       seats: seats || [],
       passenger_details: passenger_details || [],
+      subtotal: totalAmount,
+      booking_fee: bookingFee,
+      tax: tax,
       total_amount: grandTotal,
       payment_status: 'completed',
       booking_status: 'confirmed',
@@ -173,7 +224,8 @@ export const createBooking = async (req, res) => {
       special_requirements,
       payment_method,
       razorpay_payment_id,
-      razorpay_order_id
+      razorpay_order_id,
+      class_type: class_type || null
     };
 
     const booking = new Booking(bookingData);
@@ -199,6 +251,69 @@ export const createBooking = async (req, res) => {
     // Update availability
     if (booking_type === 'movie') {
       await Movie.findByIdAndUpdate(item_id, { $inc: { available_seats: -quantityToUse } }, useTransactions ? { session } : {});
+      
+      // Mark movie seats as booked
+      if (seats && Array.isArray(seats) && seats.length > 0) {
+        // For show-based seats (new system)
+        if (showtime_id) {
+          await Seat.updateMany(
+            {
+              item_type: 'show',
+              item_id: showtime_id,
+              seat_number: { $in: seats }
+            },
+            {
+              $set: {
+                status: 'booked',
+                booked_by: userId,
+                booking_id: booking._id,
+                locked_by: null,
+                locked_until: null
+              }
+            },
+            useTransactions ? { session } : {}
+          );
+        } else {
+          // For legacy movie seats
+          await Seat.updateMany(
+            {
+              item_type: 'movie',
+              item_id: item_id,
+              seat_number: { $in: seats }
+            },
+            {
+              $set: {
+                status: 'booked',
+                booked_by: userId,
+                booking_id: booking._id,
+                locked_by: null,
+                locked_until: null
+              }
+            },
+            useTransactions ? { session } : {}
+          );
+        }
+      } else {
+        // No specific seats provided - book any available seats (legacy behavior)
+        await Seat.updateMany(
+          {
+            item_type: showtime_id ? 'show' : 'movie',
+            item_id: showtime_id || item_id,
+            status: { $in: ['available', 'selected'] }
+          },
+          {
+            $set: {
+              status: 'booked',
+              booked_by: userId,
+              booking_id: booking._id,
+              locked_by: null,
+              locked_until: null
+            }
+          },
+          { limit: quantityToUse },
+          useTransactions ? { session } : {}
+        );
+      }
     } else if (booking_type === 'bus') {
       await Bus.findByIdAndUpdate(item_id, { $inc: { available_seats: -seats.length } }, useTransactions ? { session } : {});
       await Seat.updateMany(
@@ -210,6 +325,26 @@ export const createBooking = async (req, res) => {
       await Event.findByIdAndUpdate(item_id, { $inc: { available_tickets: -quantityToUse } }, useTransactions ? { session } : {});
     } else if (booking_type === 'tour') {
       await Tour.findByIdAndUpdate(item_id, { $inc: { available_slots: -quantityToUse } }, useTransactions ? { session } : {});
+    } else if (booking_type === 'train') {
+      // Update train class availability
+      const train = await Train.findById(item_id).session(useTransactions ? session : null);
+      if (train && class_type) {
+        const trainClass = train.classes.find(c => c.class_type === class_type);
+        if (trainClass) {
+          trainClass.available_seats -= quantityToUse;
+          await train.save(useTransactions ? { session } : {});
+        }
+      }
+    } else if (booking_type === 'flight') {
+      // Update flight class availability
+      const flight = await Flight.findById(item_id).session(useTransactions ? session : null);
+      if (flight && class_type) {
+        const flightClass = flight.classes.find(c => c.class_type === class_type);
+        if (flightClass) {
+          flightClass.available_seats -= quantityToUse;
+          await flight.save(useTransactions ? { session } : {});
+        }
+      }
     }
 
 

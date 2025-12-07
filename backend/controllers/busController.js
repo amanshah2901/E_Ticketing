@@ -173,7 +173,7 @@ export const getBusById = async (req, res) => {
       departure_date: { $gte: new Date() }
     })
     .limit(4)
-    .select('operator bus_type departure_date departure_time arrival_time duration price available_seats');
+    .select('operator bus_type departure_date departure_time arrival_time duration price available_seats image_url');
 
     res.json({
       success: true,

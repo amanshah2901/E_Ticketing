@@ -10,6 +10,8 @@ import {
   Search, 
   Film, 
   Bus, 
+  Train,
+  Plane,
   Music, 
   Mountain,
   Star,
@@ -18,7 +20,7 @@ import {
   Clock,
   Users
 } from 'lucide-react'
-import { moviesAPI, busesAPI, eventsAPI, toursAPI, searchAPI } from '@/api/services'
+import { moviesAPI, busesAPI, trainsAPI, flightsAPI, eventsAPI, toursAPI, searchAPI } from '@/api/services'
 import { formatCurrency, formatDate } from '@/utils'
 
 const Home = () => {
@@ -26,6 +28,8 @@ const Home = () => {
   const [searchQuery, setSearchQuery] = useState('')
   const [featuredMovies, setFeaturedMovies] = useState([])
   const [popularBuses, setPopularBuses] = useState([])
+  const [popularTrains, setPopularTrains] = useState([])
+  const [popularFlights, setPopularFlights] = useState([])
   const [featuredEvents, setFeaturedEvents] = useState([])
   const [featuredTours, setFeaturedTours] = useState([])
   const [loading, setLoading] = useState(true)
@@ -37,15 +41,19 @@ const Home = () => {
   const fetchFeaturedContent = async () => {
     try {
       setLoading(true)
-      const [movies, buses, events, tours] = await Promise.all([
+      const [movies, buses, trains, flights, events, tours] = await Promise.all([
         moviesAPI.getFeaturedMovies(),
         busesAPI.getPopularRoutes(),
+        trainsAPI.getPopularRoutes(),
+        flightsAPI.getPopularRoutes(),
         eventsAPI.getFeaturedEvents(),
         toursAPI.getFeaturedTours()
       ])
 
       setFeaturedMovies(movies.movies || [])
       setPopularBuses(buses.buses || [])
+      setPopularTrains(trains.trains || [])
+      setPopularFlights(flights.flights || [])
       setFeaturedEvents(events.events || [])
       setFeaturedTours(tours.tours || [])
     } catch (error) {
@@ -69,8 +77,10 @@ const Home = () => {
     >
       <div className="relative">
         <img 
-          src={item.poster_url || item.image_url || '/default-image.jpg'} 
-          alt={item.title}
+          src={type === 'bus' || type === 'train' || type === 'flight'
+            ? (item.image_url || (type === 'bus' ? '/default-bus-image.jpg' : type === 'train' ? '/default-train-image.jpg' : '/default-flight-image.jpg'))
+            : (item.poster_url || item.image_url || '/default-image.jpg')} 
+          alt={item.title || item.operator || item.train_name || item.airline}
           className="w-full h-48 object-cover"
         />
         <Badge className="absolute top-3 left-3 bg-black/70 text-white border-0">
@@ -86,7 +96,11 @@ const Home = () => {
       </div>
       
       <CardContent className="p-4">
-        <h3 className="font-semibold text-lg mb-2 line-clamp-1">{item.title}</h3>
+        <h3 className="font-semibold text-lg mb-2 line-clamp-1">
+          {type === 'train' ? `${item.train_name} (${item.train_number})` : 
+           type === 'flight' ? `${item.airline} ${item.flight_number}` :
+           item.title || item.operator}
+        </h3>
         
         <div className="space-y-2 text-sm text-gray-600">
           {type === 'movie' && (
@@ -109,6 +123,9 @@ const Home = () => {
           {type === 'bus' && (
             <>
               <div className="flex items-center gap-2">
+                <span className="font-semibold text-indigo-600">{item.operator || "Bus Operator"}</span>
+              </div>
+              <div className="flex items-center gap-2">
                 <MapPin className="w-4 h-4" />
                 <span>{item.from_city} → {item.to_city}</span>
               </div>
@@ -119,6 +136,46 @@ const Home = () => {
               <div className="flex items-center gap-2">
                 <Users className="w-4 h-4" />
                 <span>{item.available_seats} seats left</span>
+              </div>
+            </>
+          )}
+
+          {type === 'train' && (
+            <>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-indigo-600">{item.operator || "Indian Railways"}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <MapPin className="w-4 h-4" />
+                <span>{item.from_station} ({item.from_station_code}) → {item.to_station} ({item.to_station_code})</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4" />
+                <span>{item.departure_time}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                <span>{item.classes?.[0]?.available_seats || 0} seats left</span>
+              </div>
+            </>
+          )}
+
+          {type === 'flight' && (
+            <>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-indigo-600">{item.airline}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <MapPin className="w-4 h-4" />
+                <span>{item.from_airport} ({item.from_airport_code}) → {item.to_airport} ({item.to_airport_code})</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4" />
+                <span>{item.departure_time}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                <span>{item.classes?.[0]?.available_seats || 0} seats left</span>
               </div>
             </>
           )}
@@ -160,12 +217,22 @@ const Home = () => {
 
         <div className="flex items-center justify-between mt-4">
           <span className="text-lg font-bold text-green-600">
-            {formatCurrency(type === 'tour' ? item.price_per_person : item.price)}
+            {type === 'train' ? formatCurrency(item.classes?.[0]?.price || 0) :
+             type === 'flight' ? formatCurrency(item.classes?.[0]?.price || 0) :
+             type === 'tour' ? formatCurrency(item.price_per_person) :
+             formatCurrency(item.price)}
           </span>
-          <Button asChild>
-            <Link to={`/${type}-booking?id=${item._id || item.id}`}>
-              Book Now
-            </Link>
+          <Button 
+            onClick={() => {
+              if (type === 'movie') navigate(`/movie-booking?id=${item._id || item.id}`)
+              else if (type === 'bus') navigate(`/bus-booking?id=${item._id || item.id}`)
+              else if (type === 'train') navigate(`/train-booking?id=${item._id || item.id}`)
+              else if (type === 'flight') navigate(`/flight-booking?id=${item._id || item.id}`)
+              else if (type === 'event') navigate(`/event-booking?id=${item._id || item.id}`)
+              else if (type === 'tour') navigate(`/tour-booking?id=${item._id || item.id}`)
+            }}
+          >
+            Book Now
           </Button>
         </div>
       </CardContent>
@@ -266,6 +333,8 @@ const Home = () => {
               {[
                 { icon: Film, label: 'Movies', href: '/search?type=movie' },
                 { icon: Bus, label: 'Buses', href: '/search?type=bus' },
+                { icon: Train, label: 'Trains', href: '/search?type=train' },
+                { icon: Plane, label: 'Flights', href: '/search?type=flight' },
                 { icon: Music, label: 'Events', href: '/search?type=event' },
                 { icon: Mountain, label: 'Tours', href: '/search?type=tour' }
               ].map((item, index) => (
@@ -283,6 +352,45 @@ const Home = () => {
               ))}
             </motion.div>
           </div>
+        </div>
+      </section>
+
+      {/* Transport Search Section */}
+      <section className="bg-white py-12 border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-8">
+            <h2 className="text-3xl font-bold text-gray-900 mb-2">Search Transport</h2>
+            <p className="text-gray-600">Find buses, trains, and flights</p>
+          </div>
+          <Card className="max-w-4xl mx-auto">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-center gap-4 mb-6">
+                <Button asChild variant="outline" className="flex items-center gap-2">
+                  <Link to="/transport-search">
+                    <Bus className="w-5 h-5" />
+                    Search Buses
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" className="flex items-center gap-2">
+                  <Link to="/transport-search">
+                    <Train className="w-5 h-5" />
+                    Search Trains
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" className="flex items-center gap-2">
+                  <Link to="/transport-search">
+                    <Plane className="w-5 h-5" />
+                    Search Flights
+                  </Link>
+                </Button>
+              </div>
+              <Button asChild className="w-full">
+                <Link to="/transport-search">
+                  Search All Transport
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       </section>
 
@@ -320,6 +428,46 @@ const Home = () => {
                 item={bus} 
                 type="bus"
                 icon={Bus}
+              />
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* Popular Train Routes */}
+      {popularTrains.length > 0 && (
+        <Section 
+          title="Popular Train Routes" 
+          subtitle="Comfortable journeys across India"
+          viewAllLink="/search?type=train"
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {popularTrains.slice(0, 4).map((train, index) => (
+              <FeaturedCard 
+                key={train._id || train.id} 
+                item={train} 
+                type="train"
+                icon={Train}
+              />
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* Popular Flight Routes */}
+      {popularFlights.length > 0 && (
+        <Section 
+          title="Popular Flight Routes" 
+          subtitle="Fast and convenient air travel"
+          viewAllLink="/search?type=flight"
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {popularFlights.slice(0, 4).map((flight, index) => (
+              <FeaturedCard 
+                key={flight._id || flight.id} 
+                item={flight} 
+                type="flight"
+                icon={Plane}
               />
             ))}
           </div>

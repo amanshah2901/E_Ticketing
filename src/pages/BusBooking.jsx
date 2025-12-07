@@ -75,8 +75,10 @@ const BusBooking = () => {
     setPassengerDetails(newDetails)
   }
 
-  const calculateTotal = () => {
-    if (!bus || selectedSeats.length === 0) return 0
+  const calculatePricing = () => {
+    if (!bus || selectedSeats.length === 0) {
+      return { subtotal: 0, bookingFee: 0, tax: 0, total: 0 };
+    }
     
     const seatPrices = selectedSeats.map(seatNumber => {
       const seat = Object.values(seats).flat().find(s => s.seat_number === seatNumber)
@@ -85,9 +87,19 @@ const BusBooking = () => {
     
     const subtotal = seatPrices.reduce((sum, price) => sum + price, 0)
     const bookingFee = subtotal * 0.05
-    const tax = (subtotal + bookingFee) * 0.05
+    const tax = subtotal * 0.05
+    const total = subtotal + bookingFee + tax
     
-    return subtotal + bookingFee + tax
+    return {
+      subtotal: Math.round(subtotal * 100) / 100,
+      bookingFee: Math.round(bookingFee * 100) / 100,
+      tax: Math.round(tax * 100) / 100,
+      total: Math.round(total * 100) / 100
+    };
+  }
+
+  const calculateTotal = () => {
+    return calculatePricing().total;
   }
 
   const handleContinue = () => {
@@ -107,15 +119,19 @@ const BusBooking = () => {
     }
 
     if (step === 3) {
+      const pricing = calculatePricing();
       const bookingData = {
         booking_type: 'bus',
         item_id: busId,
         quantity: selectedSeats.length,
         seats: selectedSeats,
         passenger_details: passengerDetails,
-        total_amount: calculateTotal(),
+        total_amount: pricing.total,
         item: bus,
-        basePrice: bus.price,
+        basePrice: pricing.subtotal,
+        bookingFee: pricing.bookingFee,
+        tax: pricing.tax,
+        pricing: pricing,
         eventDate: bus.departure_date,
         eventTime: bus.departure_time,
         venue: `${bus.boarding_point} → ${bus.dropping_point}`

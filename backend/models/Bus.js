@@ -91,6 +91,11 @@ const busSchema = new mongoose.Schema({
       type: Number,
       default: 0
     }
+  },
+  image_url: {
+    type: String,
+    default: null,
+    trim: true
   }
 }, {
   timestamps: true

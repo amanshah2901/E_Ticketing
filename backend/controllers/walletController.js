@@ -23,6 +23,15 @@ import Wallet from '../models/Wallet.js';
 import WalletTransaction from '../models/WalletTransaction.js';
 import User from '../models/User.js';
 import Notification from '../models/Notification.js';
+import mongoose from 'mongoose';
+
+// Check if MongoDB supports transactions (requires replica set)
+const useTransactions = process.env.MONGODB_REPLICA_SET === 'true' || false;
+
+// Log transaction mode for debugging
+if (process.env.NODE_ENV === 'development') {
+  console.log('Wallet Controller - Transaction mode:', useTransactions ? 'ENABLED' : 'DISABLED');
+}
 
 // Get wallet balance
 export const getWallet = async (req, res) => {
@@ -112,23 +121,37 @@ export const createWalletOrder = async (req, res) => {
 
 // Add funds to wallet
 export const addFunds = async (req, res) => {
-  const session = await Wallet.startSession();
-  session.startTransaction();
+  let session = null;
+  if (useTransactions) {
+    try {
+      session = await mongoose.startSession();
+      session.startTransaction();
+    } catch (sessionError) {
+      console.warn('MongoDB session not available, proceeding without transactions:', sessionError.message);
+      session = null;
+    }
+  }
 
   try {
     const userId = req.user._id;
     const { amount, payment_method = 'razorpay', razorpay_payment_id } = req.body;
 
     if (!amount || amount <= 0) {
-      await session.abortTransaction();
-      session.endSession();
+      if (useTransactions && session) {
+        await session.abortTransaction();
+        session.endSession();
+      }
       return res.status(200).json({
         success: false,
         message: 'Valid amount is required'
       });
     }
 
-    let wallet = await Wallet.findOne({ user_id: userId });
+    const walletQuery = Wallet.findOne({ user_id: userId });
+    if (useTransactions && session) {
+      walletQuery.session(session);
+    }
+    let wallet = await walletQuery;
 
     if (!wallet) {
       wallet = new Wallet({
@@ -140,6 +163,11 @@ export const addFunds = async (req, res) => {
 
     // Add funds to wallet
     await wallet.addFunds(amount);
+    if (useTransactions && session) {
+      await wallet.save({ session });
+    } else {
+      await wallet.save();
+    }
 
     // Create wallet transaction
     const walletTransaction = new WalletTransaction({
@@ -151,19 +179,29 @@ export const addFunds = async (req, res) => {
       balance_after: wallet.balance,
       gateway_transaction_id: razorpay_payment_id
     });
-    await walletTransaction.save({ session });
+    if (useTransactions && session) {
+      await walletTransaction.save({ session });
+    } else {
+      await walletTransaction.save();
+    }
 
     // Create notification
-    await Notification.createNotification(userId, {
-      title: 'Wallet Recharged',
-      message: `Your wallet has been recharged with ₹${amount}. New balance: ₹${wallet.balance}`,
-      type: 'payment',
-      icon: 'wallet',
-      is_important: true
-    });
+    try {
+      await Notification.createNotification(userId, {
+        title: 'Wallet Recharged',
+        message: `Your wallet has been recharged with ₹${amount}. New balance: ₹${wallet.balance}`,
+        type: 'payment',
+        icon: 'wallet',
+        is_important: true
+      });
+    } catch (notifErr) {
+      console.warn("Notification error:", notifErr);
+    }
 
-    await session.commitTransaction();
-    session.endSession();
+    if (useTransactions && session) {
+      await session.commitTransaction();
+      session.endSession();
+    }
 
     res.json({
       success: true,
@@ -174,8 +212,10 @@ export const addFunds = async (req, res) => {
       }
     });
   } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
+    if (useTransactions && session) {
+      await session.abortTransaction();
+      session.endSession();
+    }
 
     console.error('Add funds error:', error);
     res.status(500).json({
@@ -305,16 +345,26 @@ export const getWalletTransactions = async (req, res) => {
 
 // Transfer funds (if needed in future)
 export const transferFunds = async (req, res) => {
-  const session = await Wallet.startSession();
-  session.startTransaction();
+  let session = null;
+  if (useTransactions) {
+    try {
+      session = await mongoose.startSession();
+      session.startTransaction();
+    } catch (sessionError) {
+      console.warn('MongoDB session not available, proceeding without transactions:', sessionError.message);
+      session = null;
+    }
+  }
 
   try {
     const fromUserId = req.user._id;
     const { to_email, amount, description } = req.body;
 
     if (!to_email || !amount || amount <= 0) {
-      await session.abortTransaction();
-      session.endSession();
+      if (useTransactions && session) {
+        await session.abortTransaction();
+        session.endSession();
+      }
       return res.status(400).json({
         success: false,
         message: 'Valid recipient email and amount are required'
@@ -322,10 +372,17 @@ export const transferFunds = async (req, res) => {
     }
 
     // Get sender's wallet
-    const fromWallet = await Wallet.findOne({ user_id: fromUserId });
+    const fromWalletQuery = Wallet.findOne({ user_id: fromUserId });
+    if (useTransactions && session) {
+      fromWalletQuery.session(session);
+    }
+    const fromWallet = await fromWalletQuery;
+    
     if (!fromWallet || !fromWallet.hasSufficientBalance(amount)) {
-      await session.abortTransaction();
-      session.endSession();
+      if (useTransactions && session) {
+        await session.abortTransaction();
+        session.endSession();
+      }
       return res.status(400).json({
         success: false,
         message: 'Insufficient balance'
@@ -335,8 +392,10 @@ export const transferFunds = async (req, res) => {
     // Get recipient user
     const toUser = await User.findOne({ email: to_email.toLowerCase() });
     if (!toUser) {
-      await session.abortTransaction();
-      session.endSession();
+      if (useTransactions && session) {
+        await session.abortTransaction();
+        session.endSession();
+      }
       return res.status(404).json({
         success: false,
         message: 'Recipient not found'
@@ -344,8 +403,10 @@ export const transferFunds = async (req, res) => {
     }
 
     if (toUser._id.toString() === fromUserId.toString()) {
-      await session.abortTransaction();
-      session.endSession();
+      if (useTransactions && session) {
+        await session.abortTransaction();
+        session.endSession();
+      }
       return res.status(400).json({
         success: false,
         message: 'Cannot transfer to yourself'
@@ -353,7 +414,12 @@ export const transferFunds = async (req, res) => {
     }
 
     // Get recipient's wallet
-    let toWallet = await Wallet.findOne({ user_id: toUser._id });
+    const toWalletQuery = Wallet.findOne({ user_id: toUser._id });
+    if (useTransactions && session) {
+      toWalletQuery.session(session);
+    }
+    let toWallet = await toWalletQuery;
+    
     if (!toWallet) {
       toWallet = new Wallet({
         user_id: toUser._id,
@@ -364,7 +430,18 @@ export const transferFunds = async (req, res) => {
 
     // Perform transfer
     await fromWallet.deductFunds(amount);
+    if (useTransactions && session) {
+      await fromWallet.save({ session });
+    } else {
+      await fromWallet.save();
+    }
+    
     await toWallet.addFunds(amount);
+    if (useTransactions && session) {
+      await toWallet.save({ session });
+    } else {
+      await toWallet.save();
+    }
 
     // Create transactions for both parties
     const fromTransaction = new WalletTransaction({
@@ -385,26 +462,37 @@ export const transferFunds = async (req, res) => {
       balance_after: toWallet.balance
     });
 
-    await fromTransaction.save({ session });
-    await toTransaction.save({ session });
+    if (useTransactions && session) {
+      await fromTransaction.save({ session });
+      await toTransaction.save({ session });
+    } else {
+      await fromTransaction.save();
+      await toTransaction.save();
+    }
 
     // Create notifications
-    await Notification.createNotification(fromUserId, {
-      title: 'Funds Transferred',
-      message: `You transferred ₹${amount} to ${toUser.email}. New balance: ₹${fromWallet.balance}`,
-      type: 'payment',
-      icon: 'send'
-    });
+    try {
+      await Notification.createNotification(fromUserId, {
+        title: 'Funds Transferred',
+        message: `You transferred ₹${amount} to ${toUser.email}. New balance: ₹${fromWallet.balance}`,
+        type: 'payment',
+        icon: 'send'
+      });
 
-    await Notification.createNotification(toUser._id, {
-      title: 'Funds Received',
-      message: `You received ₹${amount} from ${req.user.email}. New balance: ₹${toWallet.balance}`,
-      type: 'payment',
-      icon: 'receive'
-    });
+      await Notification.createNotification(toUser._id, {
+        title: 'Funds Received',
+        message: `You received ₹${amount} from ${req.user.email}. New balance: ₹${toWallet.balance}`,
+        type: 'payment',
+        icon: 'receive'
+      });
+    } catch (notifErr) {
+      console.warn("Notification error:", notifErr);
+    }
 
-    await session.commitTransaction();
-    session.endSession();
+    if (useTransactions && session) {
+      await session.commitTransaction();
+      session.endSession();
+    }
 
     res.json({
       success: true,
@@ -416,8 +504,10 @@ export const transferFunds = async (req, res) => {
       }
     });
   } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
+    if (useTransactions && session) {
+      await session.abortTransaction();
+      session.endSession();
+    }
 
     console.error('Transfer funds error:', error);
     res.status(500).json({
@@ -491,8 +581,27 @@ export const getWalletStats = async (req, res) => {
 
 // Verify Razorpay payment & add money to wallet
 export const verifyWalletPayment = async (req, res) => {
-  const session = await Wallet.startSession();
-  session.startTransaction();
+  let session = null;
+  let actuallyUseTransactions = false;
+  
+  if (useTransactions) {
+    try {
+      session = await mongoose.startSession();
+      session.startTransaction();
+      actuallyUseTransactions = true;
+    } catch (sessionError) {
+      console.warn('MongoDB session/transaction not available, proceeding without transactions:', sessionError.message);
+      if (session) {
+        try {
+          session.endSession();
+        } catch (e) {
+          // Ignore
+        }
+      }
+      session = null;
+      actuallyUseTransactions = false;
+    }
+  }
 
   try {
     const {
@@ -507,7 +616,8 @@ export const verifyWalletPayment = async (req, res) => {
       razorpay_payment_id,
       razorpay_signature: razorpay_signature ? 'present' : 'missing',
       amount,
-      shouldMockRazorpay
+      shouldMockRazorpay,
+      hasKeySecret: !!process.env.RAZORPAY_KEY_SECRET
     });
 
     if (!razorpay_order_id || !razorpay_payment_id || !amount) {
@@ -522,8 +632,10 @@ export const verifyWalletPayment = async (req, res) => {
     // Parse and validate amount
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      await session.abortTransaction();
-      session.endSession();
+      if (actuallyUseTransactions && session) {
+        await session.abortTransaction();
+        session.endSession();
+      }
       return res.status(400).json({
         success: false,
         message: "Invalid amount"
@@ -533,8 +645,10 @@ export const verifyWalletPayment = async (req, res) => {
     // Verify signature only if not in mock mode
     if (!shouldMockRazorpay) {
       if (!razorpay_signature) {
-        await session.abortTransaction();
-        session.endSession();
+        if (actuallyUseTransactions && session) {
+          await session.abortTransaction();
+          session.endSession();
+        }
         return res.status(400).json({
           success: false,
           message: "Missing payment signature"
@@ -550,15 +664,24 @@ export const verifyWalletPayment = async (req, res) => {
       console.log('Signature verification:', {
         expected: expectedSignature,
         received: razorpay_signature,
-        match: expectedSignature === razorpay_signature
+        match: expectedSignature === razorpay_signature,
+        order_id: razorpay_order_id,
+        payment_id: razorpay_payment_id
       });
 
       if (expectedSignature !== razorpay_signature) {
-        await session.abortTransaction();
-        session.endSession();
+        if (actuallyUseTransactions && session) {
+          await session.abortTransaction();
+          session.endSession();
+        }
+        console.error('Signature mismatch:', {
+          expected: expectedSignature.substring(0, 20) + '...',
+          received: razorpay_signature ? razorpay_signature.substring(0, 20) + '...' : 'missing',
+          hasSecret: !!process.env.RAZORPAY_KEY_SECRET
+        });
         return res.status(400).json({
           success: false,
-          message: "Invalid payment signature"
+          message: "Invalid payment signature. Please contact support with payment ID: " + razorpay_payment_id
         });
       }
     } else {
@@ -566,14 +689,20 @@ export const verifyWalletPayment = async (req, res) => {
     }
 
     // Check if this payment was already processed (prevent duplicate credits)
-    const existingTx = await WalletTransaction.findOne({
+    const existingTxQuery = WalletTransaction.findOne({
       gateway_transaction_id: razorpay_payment_id,
       transaction_type: 'credit'
-    }).session(session);
+    });
+    if (actuallyUseTransactions && session) {
+      existingTxQuery.session(session);
+    }
+    const existingTx = await existingTxQuery;
 
     if (existingTx) {
-      await session.abortTransaction();
-      session.endSession();
+      if (actuallyUseTransactions && session) {
+        await session.abortTransaction();
+        session.endSession();
+      }
       return res.status(400).json({
         success: false,
         message: "This payment has already been processed"
@@ -581,19 +710,36 @@ export const verifyWalletPayment = async (req, res) => {
     }
 
     // Find or create wallet
-    let wallet = await Wallet.findOne({ user_id: req.user._id }).session(session);
+    const walletQuery = Wallet.findOne({ user_id: req.user._id });
+    if (actuallyUseTransactions && session) {
+      walletQuery.session(session);
+    }
+    let wallet = await walletQuery;
+    
     if (!wallet) {
       wallet = new Wallet({
         user_id: req.user._id,
         balance: 0,
         currency: 'INR'
       });
-      await wallet.save({ session });
+      if (actuallyUseTransactions && session) {
+        await wallet.save({ session });
+      } else {
+        await wallet.save();
+      }
     }
 
     // Add funds
     await wallet.addFunds(parsedAmount);
-    await wallet.save({ session });
+    if (actuallyUseTransactions && session) {
+      await wallet.save({ session });
+    } else {
+      await wallet.save();
+    }
+    
+    // Get updated balance
+    const updatedWallet = await Wallet.findById(wallet._id);
+    const newBalance = updatedWallet.balance;
 
     // Create transaction
     const tx = new WalletTransaction({
@@ -602,27 +748,40 @@ export const verifyWalletPayment = async (req, res) => {
       amount: parsedAmount,
       description: "Wallet top-up via Razorpay",
       status: "completed",
-      balance_after: wallet.balance,
+      balance_after: newBalance,
       gateway_transaction_id: razorpay_payment_id
     });
 
-    await tx.save({ session });
+    if (actuallyUseTransactions && session) {
+      await tx.save({ session });
+    } else {
+      await tx.save();
+    }
 
     // Create notification
-    await Notification.createNotification(req.user._id, {
-      title: 'Wallet Recharged',
-      message: `Your wallet has been recharged with ₹${parsedAmount}. New balance: ₹${wallet.balance}`,
-      type: 'payment',
-      icon: 'wallet',
-      is_important: true
-    });
+    try {
+      await Notification.createNotification(req.user._id, {
+        title: 'Wallet Recharged',
+        message: `Your wallet has been recharged with ₹${parsedAmount}. New balance: ₹${newBalance}`,
+        type: 'payment',
+        icon: 'wallet',
+        is_important: true
+      });
+    } catch (notifErr) {
+      console.warn("Notification error:", notifErr);
+    }
 
-    await session.commitTransaction();
-    session.endSession();
+    if (actuallyUseTransactions && session) {
+      await session.commitTransaction();
+      session.endSession();
+    }
+
+    // Refresh wallet to get latest balance
+    const finalWallet = await Wallet.findById(wallet._id);
 
     console.log('Wallet verification successful:', {
       amount: parsedAmount,
-      new_balance: wallet.balance,
+      new_balance: finalWallet.balance,
       transaction_id: tx._id
     });
 
@@ -630,20 +789,37 @@ export const verifyWalletPayment = async (req, res) => {
       success: true,
       message: "Wallet updated successfully",
       data: {
-        wallet,
+        wallet: finalWallet,
         transaction: tx,
-        balance: wallet.balance
+        balance: finalWallet.balance
       }
     });
 
   } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
+    if (actuallyUseTransactions && session) {
+      await session.abortTransaction();
+      session.endSession();
+    } else if (session) {
+      try {
+        session.endSession();
+      } catch (e) {
+        // Ignore
+      }
+    }
 
     console.error("Verify Wallet Payment Error:", error);
+    
+    // Provide more detailed error message
+    let errorMessage = "Verification failed";
+    if (error.message) {
+      errorMessage = error.message;
+    } else if (error.response?.data?.message) {
+      errorMessage = error.response.data.message;
+    }
+    
     res.status(500).json({
       success: false,
-      message: "Verification failed",
+      message: errorMessage,
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
